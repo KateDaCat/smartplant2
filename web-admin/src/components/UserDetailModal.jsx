@@ -1,8 +1,15 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 
-const ROLE_OPTIONS = ["Admin", "Plant Researcher", "User"];
+const DEFAULT_ROLE_OPTIONS = ["Admin", "Plant Researcher", "User"];
 
-export default function UserDetailModal({ user, onClose, onUserUpdate }) {
+export default function UserDetailModal({
+  user,
+  onClose,
+  roleOptions = [],
+  onChangeRole,
+  onChangeActive,
+  isBusy = false,
+}) {
   const [currentUser, setCurrentUser] = useState(user);
   const [roleMenuOpen, setRoleMenuOpen] = useState(false);
 
@@ -10,38 +17,43 @@ export default function UserDetailModal({ user, onClose, onUserUpdate }) {
     setCurrentUser(user);
   }, [user]);
 
+  const selectableRoles = useMemo(() => {
+    return roleOptions.length ? roleOptions : DEFAULT_ROLE_OPTIONS;
+  }, [roleOptions]);
+
   const formatDate = (iso) => {
     if (!iso || iso === 'N/A') return 'Pending sync';
     const date = new Date(iso);
     return Number.isNaN(date.getTime()) ? iso : date.toLocaleString();
   };
 
-  const applyUpdate = (updates) => {
-    const updated = { ...currentUser, ...updates };
-    setCurrentUser(updated);
-    if (onUserUpdate) {
-      onUserUpdate(updated);
-    }
-  };
-
-  const confirmRoleChange = (role) => {
+  const confirmRoleChange = async (role) => {
     if (role === currentUser.role) {
       setRoleMenuOpen(false);
       return;
     }
 
-    if (window.confirm(`Assign ${role} role to ${currentUser.username}?`)) {
-      applyUpdate({ role });
+    if (!onChangeRole || isBusy) {
       setRoleMenuOpen(false);
+      return;
+    }
+
+    if (window.confirm(`Assign ${role} role to ${currentUser.username}?`)) {
+      const success = await onChangeRole(currentUser.user_id, role);
+      if (success) {
+        setRoleMenuOpen(false);
+      }
     }
   };
 
-  const confirmActiveChange = (nextValue) => {
+  const confirmActiveChange = async (nextValue) => {
     if (nextValue === currentUser.active) return;
 
     const action = nextValue ? 'activate' : 'deactivate';
+    if (!onChangeActive || isBusy) return;
+
     if (window.confirm(`Are you sure you want to ${action} ${currentUser.username}'s account?`)) {
-      applyUpdate({ active: nextValue });
+      await onChangeActive(currentUser.user_id, nextValue);
     }
   };
 
@@ -110,15 +122,20 @@ export default function UserDetailModal({ user, onClose, onUserUpdate }) {
                 >
                   {currentUser.active ? 'Active' : 'Inactive'}
                 </span>
-                {/* Simple toggle switch without complex CSS */}
-                <div 
-                  style={{
-                    ...styles.switch,
-                    backgroundColor: currentUser.active ? "#3AA272" : "#D0D7DD",
-                  }}
-                  onClick={() => confirmActiveChange(!currentUser.active)}
+                  {/* Simple toggle switch without complex CSS */}
+                  <div
+                    style={{
+                      ...styles.switch,
+                      backgroundColor: currentUser.active ? "#3AA272" : "#D0D7DD",
+                      opacity: isBusy ? 0.5 : 1,
+                      cursor: isBusy ? "not-allowed" : "pointer",
+                    }}
+                    onClick={() => {
+                      if (isBusy) return;
+                      confirmActiveChange(!currentUser.active);
+                    }}
                 >
-                  <div 
+                    <div
                     style={{
                       ...styles.slider,
                       left: currentUser.active ? "22px" : "2px",
@@ -133,9 +150,13 @@ export default function UserDetailModal({ user, onClose, onUserUpdate }) {
             <div style={styles.controlRow}>
               <span style={styles.controlLabel}>Assign Role</span>
               <div style={styles.roleSelectContainer}>
-                <button
-                  style={styles.roleSelect}
-                  onClick={() => setRoleMenuOpen((prev) => !prev)}
+                  <button
+                    style={styles.roleSelect}
+                    onClick={() => {
+                      if (isBusy) return;
+                      setRoleMenuOpen((prev) => !prev);
+                    }}
+                    disabled={isBusy}
                 >
                   <span style={styles.roleSelectText}>{currentUser.role}</span>
                   <span style={styles.roleSelectIcon}>
@@ -145,11 +166,14 @@ export default function UserDetailModal({ user, onClose, onUserUpdate }) {
 
                 {roleMenuOpen && (
                   <div style={styles.roleDropdown}>
-                    {ROLE_OPTIONS.map((role) => (
+                      {selectableRoles.map((role) => (
                       <button
                         key={role}
                         style={styles.roleOption}
-                        onClick={() => confirmRoleChange(role)}
+                          onClick={() => {
+                            if (isBusy) return;
+                            confirmRoleChange(role);
+                          }}
                       >
                         {role}
                       </button>

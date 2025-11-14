@@ -9,16 +9,29 @@ import MapIcon from "@mui/icons-material/Map";
 import FlagIcon from "@mui/icons-material/Flag";
 import LogoutIcon from "@mui/icons-material/Logout";
 
-export default function Sidebar({ onLogout }) {
+const normalizeRole = (value) =>
+  typeof value === "string" ? value.trim().toLowerCase() : "";
+
+export default function Sidebar({ user, onLogout }) {
   const location = useLocation();
 
-  const menuItems = [
+  const roleName = normalizeRole(user?.role_name);
+  const isAdmin = roleName === "admin" || user?.role_id === 1;
+
+  const allMenuItems = [
     { path: "/dashboard", label: "Dashboard", icon: <DashboardIcon /> },
-    { path: "/users", label: "User Directory", icon: <PeopleIcon /> },
+    { path: "/users", label: "User Directory", icon: <PeopleIcon />, adminOnly: true },
     { path: "/flags", label: "Flagged Plants", icon: <FlagIcon /> },
     { path: "/heatmap", label: "Heatmap", icon: <MapIcon /> },
     { path: "/iot", label: "IoT Monitoring", icon: <SensorsIcon /> },
   ];
+
+  const menuItems = allMenuItems.filter((item) => {
+    if (!item.adminOnly) return true;
+    // show while user info is loading to avoid hiding navigation
+    if (!user) return true;
+    return isAdmin;
+  });
 
   return (
     <div className="sidebar">
@@ -37,12 +50,11 @@ export default function Sidebar({ onLogout }) {
             }`}
           >
             <span className="sidebar-icon">{item.icon}</span>
-              <span className="sidebar-label">{item.label}</span>
+            <span className="sidebar-label">{item.label}</span>
           </Link>
         ))}
       </nav>
 
-      {/* Logout Button at Bottom */}
       <div className="sidebar-footer">
         <button 
           className="sidebar-logout-btn"

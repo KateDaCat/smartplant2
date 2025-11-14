@@ -9,56 +9,78 @@ import IoT from "./pages/IoT";
 import IotAnalytics from "./pages/IotAnalytics";
 import Login from "./pages/Login";
 
+const ProtectedRoute = ({ user, onLogout, children }) => {
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+  return (
+    <AdminLayout user={user} onLogout={onLogout}>
+      {children}
+    </AdminLayout>
+  );
+};
+
+const AdminRoute = ({ user, onLogout, children }) => {
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+  const roleName = typeof user.role_name === "string" ? user.role_name.toLowerCase() : "";
+  const role = typeof user.role === "string" ? user.role.toLowerCase() : "";
+  const isAdmin = roleName === "admin" || role === "admin" || user.role_id === 1;
+
+  if (!isAdmin) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  return (
+    <AdminLayout user={user} onLogout={onLogout}>
+      {children}
+    </AdminLayout>
+  );
+};
+
 export default function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Check if user is already logged in
   useEffect(() => {
-    const checkAuth = () => {
-      const token = localStorage.getItem('adminToken');
-      const user = localStorage.getItem('adminUser');
-
-      if (token && user) {
-        try {
-          const parsed = JSON.parse(user);
-          setCurrentUser(parsed);
-          setIsAuthenticated(true);
-        } catch (err) {
-          console.warn("Failed to parse cached adminUser:", err);
-        }
+    const token = localStorage.getItem("adminToken");
+    const storedUser = localStorage.getItem("adminUser");
+    if (token && storedUser) {
+      try {
+        const parsed = JSON.parse(storedUser);
+        setCurrentUser(parsed);
+      } catch (error) {
+        console.warn("Failed to parse cached adminUser:", error);
       }
-      setLoading(false);
-    };
-
-    checkAuth();
+    }
+    setLoading(false);
   }, []);
 
   const handleLogin = (userData) => {
-    setIsAuthenticated(true);
     setCurrentUser(userData);
-    localStorage.setItem('adminUser', JSON.stringify(userData));
-    localStorage.setItem('adminToken', 'mock-token-here'); // Cybersecurity team will replace
+    localStorage.setItem("adminUser", JSON.stringify(userData));
+    localStorage.setItem("adminToken", "mock-token-here");
   };
 
   const handleLogout = () => {
-    setIsAuthenticated(false);
     setCurrentUser(null);
-    localStorage.removeItem('adminUser');
-    localStorage.removeItem('adminToken');
+    localStorage.removeItem("adminUser");
+    localStorage.removeItem("adminToken");
   };
 
   if (loading) {
     return (
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'center', 
-        alignItems: 'center', 
-        height: '100vh',
-        fontSize: '16px',
-        color: '#6B7280'
-      }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          height: "100vh",
+          fontSize: "16px",
+          color: "#6B7280",
+        }}
+      >
         Loading...
       </div>
     );
@@ -67,91 +89,89 @@ export default function App() {
   return (
     <Router>
       <Routes>
-        {/* Login Route - Always accessible */}
-        <Route 
-          path="/login" 
+        <Route
+          path="/login"
           element={
-            isAuthenticated ? 
-            <Navigate to="/dashboard" replace /> : 
-            <Login onLogin={handleLogin} />
-          } 
+            currentUser ? (
+              <Navigate to="/dashboard" replace />
+            ) : (
+              <Login onLogin={handleLogin} />
+            )
+          }
         />
-        
-        {/* Protected Routes - Only accessible when authenticated */}
-        <Route 
-          path="/dashboard" 
+
+        <Route
+          path="/dashboard"
           element={
-            isAuthenticated ? 
-              <AdminLayout user={currentUser} onLogout={handleLogout}><Dashboard /></AdminLayout> : 
-            <Navigate to="/login" replace />
-          } 
+            <ProtectedRoute user={currentUser} onLogout={handleLogout}>
+              <Dashboard />
+            </ProtectedRoute>
+          }
         />
-        
-        <Route 
-          path="/users" 
+
+        <Route
+          path="/users"
           element={
-            isAuthenticated ? 
-              <AdminLayout user={currentUser} onLogout={handleLogout}><Users /></AdminLayout> : 
-            <Navigate to="/login" replace />
-          } 
+            <AdminRoute user={currentUser} onLogout={handleLogout}>
+              <Users />
+            </AdminRoute>
+          }
         />
-        
-        <Route 
-          path="/flags" 
+
+        <Route
+          path="/flags"
           element={
-            isAuthenticated ? 
-              <AdminLayout user={currentUser} onLogout={handleLogout}><Flags /></AdminLayout> : 
-            <Navigate to="/login" replace />
-          } 
+            <ProtectedRoute user={currentUser} onLogout={handleLogout}>
+              <Flags />
+            </ProtectedRoute>
+          }
         />
-        
-        <Route 
-          path="/heatmap" 
+
+        <Route
+          path="/heatmap"
           element={
-            isAuthenticated ? 
-              <AdminLayout user={currentUser} onLogout={handleLogout}><Heatmap /></AdminLayout> : 
-            <Navigate to="/login" replace />
-          } 
+            <ProtectedRoute user={currentUser} onLogout={handleLogout}>
+              <Heatmap />
+            </ProtectedRoute>
+          }
         />
-        
-        <Route 
-          path="/iot" 
+
+        <Route
+          path="/iot"
           element={
-            isAuthenticated ? 
-              <AdminLayout user={currentUser} onLogout={handleLogout}><IoT /></AdminLayout> : 
-            <Navigate to="/login" replace />
-          } 
+            <ProtectedRoute user={currentUser} onLogout={handleLogout}>
+              <IoT />
+            </ProtectedRoute>
+          }
         />
-        
-        <Route 
-          path="/iot-analytics" 
+
+        <Route
+          path="/iot-analytics"
           element={
-            isAuthenticated ? 
-              <AdminLayout user={currentUser} onLogout={handleLogout}><IotAnalytics /></AdminLayout> : 
-            <Navigate to="/login" replace />
-          } 
+            <ProtectedRoute user={currentUser} onLogout={handleLogout}>
+              <IotAnalytics />
+            </ProtectedRoute>
+          }
         />
-        
-        {/* Redirect root to login or dashboard */}
-        <Route 
-          path="/" 
+
+        <Route
+          path="/"
           element={
-            isAuthenticated ? 
-            <Navigate to="/dashboard" replace /> : 
-            <Navigate to="/login" replace />
-          } 
+            currentUser ? (
+              <Navigate to="/dashboard" replace />
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
         />
-        
-        {/* Catch all route - redirect to login */}
-        <Route 
-          path="*" 
+
+        <Route
+          path="*"
           element={
-            isAuthenticated ? 
-            <Navigate to="/dashboard" replace /> : 
-            <Navigate to="/login" replace />
-          } 
+            currentUser ? (
+              <Navigate to="/dashboard" replace />
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
         />
-      </Routes>
-    </Router>
-  );
-}

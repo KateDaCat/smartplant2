@@ -985,18 +985,9 @@ export default function Heatmap() {
 
           {/* Endangered Species Controls Panel */}
           <div className="controls-panel">
-            <div className="panel-header">
-              <div className="panel-title">Endangered Species Controls</div>
-              {!selectedObservation && (
-                <button 
-                  className="choose-button"
-                  onClick={() => setShowPlantModal(true)}
-                >
-                  <span>🌿</span>
-                  Choose a plant
-                </button>
-              )}
-            </div>
+              <div className="panel-header">
+                <div className="panel-title">Endangered Species Controls</div>
+              </div>
 
             {selectedObservation ? (
               <div className="selected-card">
@@ -1119,12 +1110,12 @@ export default function Heatmap() {
       </div>
 
       {/* Plant Selection Modal */}
-      <PlantSelectionModal
-        isOpen={showPlantModal}
-        onClose={() => setShowPlantModal(false)}
-        observations={rows}
-        onSelectPlant={setSelectedObservation}
-      />
+        <PlantSelectionModal
+          isOpen={showPlantModal}
+          onClose={() => setShowPlantModal(false)}
+          observations={rows}
+          onSelectPlant={setSelectedObservation}
+        />
     </>
   );
 }

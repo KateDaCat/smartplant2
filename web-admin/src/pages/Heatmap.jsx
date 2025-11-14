@@ -568,6 +568,22 @@ function HeatLayer({ points }) {
   return null;
 }
 
+function MapFocus({ target }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!map) return;
+    if (!target || target.length !== 2) return;
+    const [lat, lng] = target;
+    if (typeof lat !== "number" || typeof lng !== "number") return;
+    map.flyTo([lat, lng], map.getZoom(), {
+      duration: 0.75,
+    });
+  }, [map, target]);
+
+  return null;
+}
+
 // ---------- Plant Selection Modal Component ----------
 const PlantSelectionModal = ({ isOpen, onClose, observations, onSelectPlant }) => {
   if (!isOpen) return null;
@@ -854,14 +870,12 @@ export default function Heatmap() {
             <button
               className={`btn small ${mode === "heatmap" ? "primary" : ""}`}
               onClick={() => setMode("heatmap")}
-              disabled={!selectedObservation}
             >
               Heatmap
             </button>
             <button
               className={`btn small ${mode === "markers" ? "primary" : ""}`}
               onClick={() => setMode("markers")}
-              disabled={!selectedObservation}
             >
               Markers
             </button>
@@ -884,8 +898,18 @@ export default function Heatmap() {
               attribution='&copy; OpenStreetMap contributors'
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
+              <MapFocus
+                target={
+                  selectedObservation
+                    ? [
+                        selectedObservation.location_latitude,
+                        selectedObservation.location_longitude,
+                      ]
+                    : null
+                }
+              />
             
-            {mode === "heatmap" && selectedObservation && <HeatLayer points={heatPts} />}
+              {mode === "heatmap" && <HeatLayer points={heatPts} />}
 
             {mode === "markers" && 
               (selectedObservation ? filteredObservations : rows).map(r => (
@@ -961,14 +985,12 @@ export default function Heatmap() {
             <button 
               className={`btn ${mode === "heatmap" ? "primary" : ""}`}
               onClick={() => setMode("heatmap")}
-              disabled={!selectedObservation}
             >
               Heatmap
             </button>
             <button 
               className={`btn ${mode === "markers" ? "primary" : ""}`}
               onClick={() => setMode("markers")}
-              disabled={!selectedObservation}
             >
               Markers
             </button>

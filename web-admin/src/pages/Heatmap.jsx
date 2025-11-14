@@ -3,7 +3,6 @@ import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from "react-leaf
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import "leaflet.heat";
-import { fetchHeatmapObservations, setObservationMask } from "../services/heatmap";
 
 // ---------- Embedded CSS ----------
 const css = `
@@ -588,7 +587,7 @@ export default function Heatmap() {
   const draggingRef = useRef(false);
 
   const [loading, setLoading] = useState(false);
-  const [rows, setRows] = useState([]);
+  const [rows, setRows] = useState(MOCK);
   const [error, setError] = useState("");
   const [mode, setMode] = useState("heatmap");
   const [search, setSearch] = useState("");
@@ -600,22 +599,7 @@ export default function Heatmap() {
   // Load data
   useEffect(() => {
     let mounted = true;
-    (async () => {
-      setLoading(true);
-      setError("");
-      try {
-        const data = await fetchHeatmapObservations();
-        if (mounted) setRows(data.length ? data : MOCK);
-      } catch (e) {
-        if (mounted) {
-          console.error(e);
-          setRows(MOCK);
-          setError("Showing mock data (API unavailable).");
-        }
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    })();
+    setRows(MOCK);
     return () => { mounted = false; };
   }, []);
 
@@ -654,46 +638,17 @@ export default function Heatmap() {
 
   // Toggle mask function
   const toggleMask = useCallback(
-    async (obsId) => {
-      const target = rows.find((r) => r.observation_id === obsId);
-      if (!target) return;
-
-      const nextValue = !target.is_masked;
-      const actionLabel = nextValue ? "mask" : "unmask";
-      const confirmed = window.confirm(
-        `Are you sure you want to ${actionLabel} observation ${obsId}?`
-      );
-      if (!confirmed) {
-        return;
-      }
-
+    (obsId) => {
       setRows((prev) =>
         prev.map((r) =>
-          r.observation_id === obsId ? { ...r, is_masked: nextValue } : r
+          r.observation_id === obsId ? { ...r, is_masked: !r.is_masked } : r
         )
       );
 
       if (selectedObservation && selectedObservation.observation_id === obsId) {
         setSelectedObservation((prev) =>
-          prev ? { ...prev, is_masked: nextValue } : prev
+          prev ? { ...prev, is_masked: !prev.is_masked } : prev
         );
-      }
-
-      try {
-        await setObservationMask(obsId, nextValue);
-      } catch (error) {
-        console.error(error);
-        window.alert("Failed to update visibility. Please try again.");
-        setRows((prev) =>
-          prev.map((r) =>
-            r.observation_id === obsId ? { ...r, is_masked: target.is_masked } : r
-          )
-        );
-        if (selectedObservation && selectedObservation.observation_id === obsId) {
-          setSelectedObservation((prev) =>
-            prev ? { ...prev, is_masked: target.is_masked } : prev
-          );
-        }
       }
     },
     [rows, selectedObservation]

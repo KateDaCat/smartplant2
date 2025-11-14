@@ -2,9 +2,10 @@
 import React, { useState, useCallback } from "react";
 import Sidebar from "../components/Sidebar";
 import Topbar from "../components/Topbar";
+import AdminAgentChat from "../components/AdminAgentChat";
 import "./AdminLayout.css";
 
-export default function AdminLayout({ children, onLogout }) {
+export default function AdminLayout({ children, user, onLogout }) {
   const [sidebarHidden, setSidebarHidden] = useState(false);
 
   const toggleSidebar = useCallback(() => {
@@ -13,14 +14,16 @@ export default function AdminLayout({ children, onLogout }) {
 
   return (
     <div className={`admin-layout ${sidebarHidden ? "sidebar-hidden" : ""}`}>
-      <Sidebar onLogout={onLogout} />
+      <Sidebar user={user} onLogout={onLogout} />
 
       <div className="admin-main">
         <Topbar
+          user={user}
           onLogout={onLogout}
           onToggleSidebar={toggleSidebar}
           sidebarHidden={sidebarHidden}
         />
+        <AdminAgentChat />
         <div className="admin-content">{children}</div>
       </div>
     </div>

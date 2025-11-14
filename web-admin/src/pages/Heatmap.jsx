@@ -595,12 +595,70 @@ export default function Heatmap() {
   const [sortDir, setSortDir] = useState("asc");
   const [selectedObservation, setSelectedObservation] = useState(null);
   const [showPlantModal, setShowPlantModal] = useState(false);
+  const selectionRef = useRef(null);
+
+  useEffect(() => {
+    selectionRef.current = selectedObservation;
+  }, [selectedObservation]);
 
   // Load data
   useEffect(() => {
     let mounted = true;
-    setRows(MOCK);
-    return () => { mounted = false; };
+    (async () => {
+      setLoading(true);
+      setError("");
+      try {
+        const data = await fetchHeatmapObservations();
+        if (!mounted) return;
+        const parsed = Array.isArray(data)
+          ? data
+              .map((item) => ({
+                ...item,
+                location_latitude:
+                  item.location_latitude != null
+                    ? Number(item.location_latitude)
+                    : null,
+                location_longitude:
+                  item.location_longitude != null
+                    ? Number(item.location_longitude)
+                    : null,
+                confidence_score:
+                  item.confidence_score != null
+                    ? Number(item.confidence_score)
+                    : null,
+              }))
+              .filter(
+                (item) =>
+                  typeof item.location_latitude === "number" &&
+                  !Number.isNaN(item.location_latitude) &&
+                  typeof item.location_longitude === "number" &&
+                  !Number.isNaN(item.location_longitude)
+              )
+          : [];
+
+        setRows(parsed);
+        const currentSelection = selectionRef.current;
+        if (
+          currentSelection &&
+          !parsed.some(
+            (obs) => obs.observation_id === currentSelection.observation_id
+          )
+        ) {
+          setSelectedObservation(null);
+        }
+      } catch (err) {
+        console.error(err);
+        if (mounted) {
+          setError("Unable to load heatmap data from backend. Showing mock data.");
+          setRows(MOCK);
+        }
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   // Drag handlers
@@ -638,17 +696,43 @@ export default function Heatmap() {
 
   // Toggle mask function
   const toggleMask = useCallback(
-    (obsId) => {
+    async (obsId) => {
+      const target = rows.find((r) => r.observation_id === obsId);
+      if (!target) return;
+
+      const nextValue = !target.is_masked;
+      const confirmed = window.confirm(
+        `Are you sure you want to ${nextValue ? "mask" : "unmask"} observation ${obsId}?`
+      );
+      if (!confirmed) return;
+
       setRows((prev) =>
         prev.map((r) =>
-          r.observation_id === obsId ? { ...r, is_masked: !r.is_masked } : r
+          r.observation_id === obsId ? { ...r, is_masked: nextValue } : r
         )
       );
 
       if (selectedObservation && selectedObservation.observation_id === obsId) {
         setSelectedObservation((prev) =>
-          prev ? { ...prev, is_masked: !prev.is_masked } : prev
+          prev ? { ...prev, is_masked: nextValue } : prev
         );
+      }
+
+      try {
+        await setObservationMask(obsId, nextValue);
+      } catch (err) {
+        console.error(err);
+        window.alert("Failed to update visibility. Please try again.");
+        setRows((prev) =>
+          prev.map((r) =>
+            r.observation_id === obsId ? { ...r, is_masked: target.is_masked } : r
+          )
+        );
+        if (selectedObservation && selectedObservation.observation_id === obsId) {
+          setSelectedObservation((prev) =>
+            prev ? { ...prev, is_masked: target.is_masked } : prev
+          );
+        }
       }
     },
     [rows, selectedObservation]

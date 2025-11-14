@@ -1,23 +1,11 @@
-import React, { useEffect, useState } from "react";
-import axios from "../utils/axios";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
+import { fetchFlaggedUnsure, updateObservationStatus } from "../services/flagged";
 import SearchIcon from "@mui/icons-material/Search";
 import LocalFloristIcon from "@mui/icons-material/LocalFlorist";
 import ZoomInIcon from "@mui/icons-material/ZoomIn";
 import WarningIcon from "@mui/icons-material/Warning";
 
-export default function FlaggedPlants() {
-  const [items, setItems] = useState([]);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [selectedObservation, setSelectedObservation] = useState(null);
-  const [showReviewModal, setShowReviewModal] = useState(false);
-  const [showImageModal, setShowImageModal] = useState(false);
-  const [showIdentifyModal, setShowIdentifyModal] = useState(false);
-  const [identifiedName, setIdentifiedName] = useState("");
-  const [imageLoaded, setImageLoaded] = useState(false);
-
-  // Updated Mock data (matching mobile version structure)
-  const MOCK_FLAGGED = [
+const MOCK_FLAGGED = [
     {
       observation_id: "OBS-3011",
       plant_name: "Unknown Nepenthes",
@@ -50,30 +38,57 @@ export default function FlaggedPlants() {
     },
   ];
 
-  useEffect(() => {
-    const loadFlagged = async () => {
-      try {
-        const res = await axios.get("/admin/flagged");
-        setItems(res.data);
-      } catch (e) {
-        console.warn("Backend not ready, using mock data.");
-        setItems(MOCK_FLAGGED);
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadFlagged();
+export default function FlaggedPlants() {
+  const [items, setItems] = useState([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [selectedObservation, setSelectedObservation] = useState(null);
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const [showImageModal, setShowImageModal] = useState(false);
+  const [showIdentifyModal, setShowIdentifyModal] = useState(false);
+  const [identifiedName, setIdentifiedName] = useState("");
+  const [error, setError] = useState(null);
+  const [actionError, setActionError] = useState(null);
+  const [actionLoading, setActionLoading] = useState(false);
+
+  const loadFlagged = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await fetchFlaggedUnsure();
+      setItems(data);
+    } catch (e) {
+      console.error(e);
+      setError("Failed to load flagged observations. Showing latest mock data.");
+      setItems(MOCK_FLAGGED);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
+  useEffect(() => {
+    loadFlagged();
+  }, [loadFlagged]);
+
   // Search filter
-  const filtered = items.filter((item) =>
-    Object.values(item).some((v) =>
-      v.toString().toLowerCase().includes(searchQuery.toLowerCase())
-    )
-  );
+  const filtered = useMemo(() => {
+    const term = searchQuery.trim().toLowerCase();
+    if (!term) return items;
+    return items.filter((item) =>
+      Object.values(item).some((v) => {
+        if (v == null) return false;
+        return v.toString().toLowerCase().includes(term);
+      })
+    );
+  }, [items, searchQuery]);
 
   // Utility functions
-  const toPercent = (score) => `${Math.round(score * 100)}%`;
+  const toPercent = (score) => {
+    if (score == null) return "—";
+    const numeric = Number(score);
+    if (Number.isNaN(numeric)) return "—";
+    return `${Math.round(numeric * 100)}%`;
+  };
 
   const formatDate = (iso) => {
     const date = new Date(iso);
@@ -81,13 +96,18 @@ export default function FlaggedPlants() {
   };
 
   // Check if confidence is low 
-  const isLowConfidence = (confidence) => confidence < 0.5;
+  const isLowConfidence = (confidence) => {
+    const numeric = Number(confidence);
+    if (Number.isNaN(numeric)) return false;
+    return numeric < 0.5;
+  };
 
   // Modal handlers - FIXED: Prevent body scroll when modal is open
   const handleReview = (observation) => {
     setSelectedObservation(observation);
+    setActionError(null);
+    setActionLoading(false);
     setShowReviewModal(true);
-    setImageLoaded(false); // Reset image loaded state
     // Prevent body scroll when modal is open
     document.body.style.overflow = 'hidden';
   };
@@ -98,7 +118,8 @@ export default function FlaggedPlants() {
     setShowImageModal(false);
     setShowIdentifyModal(false);
     setIdentifiedName("");
-    setImageLoaded(false); // Reset image loaded state
+    setActionError(null);
+    setActionLoading(false);
     // Restore body scroll
     document.body.style.overflow = 'unset';
   };
@@ -110,28 +131,67 @@ export default function FlaggedPlants() {
 
   const handleIdentifyModal = (show) => {
     setShowIdentifyModal(show);
+    if (!show) {
+      setActionError(null);
+      setActionLoading(false);
+    }
     document.body.style.overflow = show ? 'hidden' : 'unset';
   };
 
-  const handleApprove = () => {
-    if (window.confirm('Are you sure you want to approve this observation?')) {
-      // Remove from list
-      setItems(prev => prev.filter(item => item.observation_id !== selectedObservation.observation_id));
-      alert(`Observation ${selectedObservation.observation_id} has been approved.`);
+  const handleApprove = async () => {
+    if (!selectedObservation) return;
+    const observationId = selectedObservation.observation_id;
+    if (!window.confirm('Are you sure you want to approve this observation?')) {
+      return;
+    }
+
+    setActionLoading(true);
+    setActionError(null);
+
+    try {
+      await updateObservationStatus(observationId, { status: "verified" });
+      setItems((prev) =>
+        prev.filter((item) => item.observation_id !== observationId)
+      );
       handleCloseModal();
+    } catch (e) {
+      console.error(e);
+      setActionError("Failed to approve observation. Please try again.");
+    } finally {
+      setActionLoading(false);
     }
   };
 
   const handleIdentify = () => {
+    setActionError(null);
     handleIdentifyModal(true);
   };
 
-  const handleSaveIdentification = () => {
-    if (identifiedName.trim()) {
-      // Remove from list and record identification
-      setItems(prev => prev.filter(item => item.observation_id !== selectedObservation.observation_id));
-      alert(`Recorded as ${identifiedName}.`);
+  const handleSaveIdentification = async () => {
+    if (!identifiedName.trim() || !selectedObservation) return;
+    const observationId = selectedObservation.observation_id;
+    const appendedNote = `Identified as: ${identifiedName.trim()}`;
+    const combinedNotes = selectedObservation.notes
+      ? `${selectedObservation.notes}\n${appendedNote}`
+      : appendedNote;
+
+    setActionLoading(true);
+    setActionError(null);
+
+    try {
+      await updateObservationStatus(observationId, {
+        status: "verified",
+        notes: combinedNotes,
+      });
+      setItems((prev) =>
+        prev.filter((item) => item.observation_id !== observationId)
+      );
       handleCloseModal();
+    } catch (e) {
+      console.error(e);
+      setActionError("Failed to record identification. Please try again.");
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -349,6 +409,15 @@ export default function FlaggedPlants() {
           </p>
         </div>
 
+          {error && (
+            <div style={styles.errorBanner}>
+              <span>{error}</span>
+              <button style={styles.retryButton} onClick={loadFlagged}>
+                Retry
+              </button>
+            </div>
+          )}
+
         {/* Search bar */}
         <div style={styles.searchBar}>
           <SearchIcon style={styles.searchIcon} />
@@ -431,10 +500,8 @@ export default function FlaggedPlants() {
                     src={selectedObservation.photo} 
                     alt={selectedObservation.plant_name}
                     className="photo"
-                    onLoad={() => setImageLoaded(true)}
                     onError={(e) => {
                       e.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgdmlld0JveD0iMCAwIDQwMCAzMDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSI0MDAiIGhlaWdodD0iMzAwIiBmaWxsPSIjRjNGNEY2Ii8+CjxwYXRoIGQ9Ik0yMDAgMTUwQzIxMy44MDcgMTUwIDIyNSAxMzguODA3IDIyNSAxMjVDMjI1IDExMS4xOTMgMjEzLjgwNyAxMDAgMjAwIDEwMEMxODYuMTkzIDEwMCAxNzUgMTExLjE5MyAxNzUgMTI1QzE3IDEzOC44MDcgMTg2LjE5MyAxNTAgMjAwIDE1MFoiIGZpbGw9IiM5Q0E1QjkiLz4KPC9zdmc+';
-                      setImageLoaded(true);
                     }}
                   />
                   <div className="resize-badge">
@@ -476,11 +543,20 @@ export default function FlaggedPlants() {
                 </div>
 
                 {/* Action buttons */}
-                <div style={styles.actionsRow}>
-                  <button style={styles.approveButton} onClick={handleApprove}>
-                    Approve
+                  {actionError && <div style={styles.actionError}>{actionError}</div>}
+                  <div style={styles.actionsRow}>
+                    <button
+                      style={styles.approveButton}
+                      onClick={handleApprove}
+                      disabled={actionLoading}
+                    >
+                      {actionLoading ? "Saving..." : "Approve"}
                   </button>
-                  <button style={styles.identifyButton} onClick={handleIdentify}>
+                    <button
+                      style={styles.identifyButton}
+                      onClick={handleIdentify}
+                      disabled={actionLoading}
+                    >
                     Identify
                   </button>
                 </div>
@@ -562,10 +638,11 @@ export default function FlaggedPlants() {
                 type="text"
                 className="identify-input"
                 value={identifiedName}
-                onChange={(e) => setIdentifiedName(e.target.value)}
+                  onChange={(e) => setIdentifiedName(e.target.value)}
                 placeholder="Enter confirmed plant name"
                 autoFocus
               />
+                {actionError && <div style={styles.actionError}>{actionError}</div>}
               <div className="identify-actions">
                 <button 
                   className="cancel-button"
@@ -575,10 +652,10 @@ export default function FlaggedPlants() {
                 </button>
                 <button 
                   className="confirm-button"
-                  disabled={!identifiedName.trim()}
+                    disabled={!identifiedName.trim() || actionLoading}
                   onClick={handleSaveIdentification}
                 >
-                  Save
+                    {actionLoading ? "Saving..." : "Save"}
                 </button>
               </div>
             </div>
@@ -612,6 +689,28 @@ const styles = {
     color: '#4B5563',
     margin: 0,
   },
+    errorBanner: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: "12px",
+      padding: "12px 16px",
+      borderRadius: "12px",
+      backgroundColor: "#FEE2E2",
+      color: "#7F1D1D",
+      border: "1px solid #FCA5A5",
+      marginBottom: "16px",
+    },
+    retryButton: {
+      padding: "6px 12px",
+      borderRadius: "8px",
+      border: "none",
+      backgroundColor: "#1E88E5",
+      color: "#fff",
+      cursor: "pointer",
+      fontSize: "13px",
+      fontWeight: 600,
+    },
   // Search bar styles matching mobile
   searchBar: {
     marginTop: "16px",
@@ -812,6 +911,11 @@ const styles = {
     gap: 12,
     marginTop: 20,
   },
+    actionError: {
+      fontSize: 12,
+      color: '#B91C1C',
+      marginTop: 4,
+    },
   // Button colors to match mobile app
   approveButton: {
     flex: 1,

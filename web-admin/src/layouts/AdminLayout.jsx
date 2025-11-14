@@ -5,20 +5,22 @@ import Topbar from "../components/Topbar";
 import "./AdminLayout.css";
 
 export default function AdminLayout({ children, onLogout }) {
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarHidden, setSidebarHidden] = useState(false);
 
   const toggleSidebar = useCallback(() => {
-    setSidebarCollapsed((prev) => !prev);
+    setSidebarHidden((prev) => !prev);
   }, []);
 
   return (
-    <div className={`admin-layout ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
-      {/* LEFT SIDEBAR */}
-      <Sidebar onLogout={onLogout} collapsed={sidebarCollapsed} onToggle={toggleSidebar} />
+    <div className={`admin-layout ${sidebarHidden ? "sidebar-hidden" : ""}`}>
+      <Sidebar onLogout={onLogout} />
 
-      {/* RIGHT CONTENT AREA */}
       <div className="admin-main">
-        <Topbar onLogout={onLogout} />
+        <Topbar
+          onLogout={onLogout}
+          onToggleSidebar={toggleSidebar}
+          sidebarHidden={sidebarHidden}
+        />
         <div className="admin-content">{children}</div>
       </div>
     </div>

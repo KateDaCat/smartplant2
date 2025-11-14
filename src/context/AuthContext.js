@@ -2,33 +2,24 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { fetchUserProfile } from '../../services/api'; // We'll use this to re-validate the user
 
-// Create the context
 const AuthContext = createContext();
 
-// Create the provider component
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true); 
 
-  // On app start, check if a user token is saved in storage
+  // On app start, check for a saved user object
   useEffect(() => {
     const loadUserFromStorage = async () => {
       try {
-        const savedToken = await AsyncStorage.getItem('userToken');
-        if (savedToken) {
-          // We found a token, now let's get the user profile
-          // This also validates the token
-          const profile = await fetchUserProfile('me', savedToken); 
-          setUser(profile);
-          setToken(savedToken);
+        const savedUser = await AsyncStorage.getItem('user');
+        if (savedUser) {
+          setUser(JSON.parse(savedUser));
         }
       } catch (e) {
         console.warn('Failed to load user from storage', e);
-        // Token might be invalid, so clear it
-        await AsyncStorage.removeItem('userToken');
       } finally {
         setIsLoading(false);
       }
@@ -37,32 +28,43 @@ export const AuthProvider = ({ children }) => {
     loadUserFromStorage();
   }, []);
 
-  // Login function
+  // Login function (this is now correct)
   const login = async (userData, authToken, rememberMe) => {
     setUser(userData);
-    setToken(authToken);
+    setToken(authToken); 
     if (rememberMe) {
-      await AsyncStorage.setItem('userToken', authToken);
+      try {
+        await AsyncStorage.setItem('user', JSON.stringify(userData));
+      } catch (e) {
+        console.warn("Failed to save user to storage", e);
+      }
     }
   };
 
-  // Logout function
+  // ⬇️ *** THIS IS THE FIX *** ⬇️
+  // The logout function should NOT handle navigation.
+  // It just clears the state. RootNavigator will handle the rest.
   const logout = async () => {
+    console.log("[AuthContext] Logging out and clearing user state.");
     setUser(null);
     setToken(null);
-    await AsyncStorage.removeItem('userToken');
+    try {
+      await AsyncStorage.removeItem('user');
+    } catch (e) {
+      console.warn("Failed to remove user from storage", e);
+    }
   };
 
-  // Show a loading spinner while we check for a saved user
+  // Show loading spinner
   if (isLoading) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator size="large" />
+        <ActivityIndicator size="large" color="#2F6C4F" />
       </View>
     );
   }
 
-  // Pass the state and functions to all children
+  // Provide the state
   return (
     <AuthContext.Provider value={{ user, token, login, logout, isLoading }}>
       {children}
@@ -70,7 +72,7 @@ export const AuthProvider = ({ children }) => {
   );
 };
 
-// Custom hook to easily access the auth context
+// Custom hook
 export const useAuth = () => {
   return useContext(AuthContext);
 };

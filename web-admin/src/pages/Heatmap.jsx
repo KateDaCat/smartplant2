@@ -3,7 +3,7 @@ import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from "react-leaf
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import "leaflet.heat";
-import api from "../utils/axios";
+import { fetchHeatmapObservations, setObservationMask } from "../services/heatmap";
 
 // ---------- Embedded CSS ----------
 const css = `
@@ -42,7 +42,7 @@ const css = `
   background: var(--card);
   display:flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: hidden auto;
   border-left: 1px solid var(--border);
 }
 
@@ -252,6 +252,7 @@ select, input[type="search"] {
   flex: 1;
   display: flex;
   flex-direction: column;
+  overflow-y: auto;
 }
 
 .panel-header {
@@ -567,6 +568,22 @@ function HeatLayer({ points }) {
   return null;
 }
 
+function MapFocus({ target }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!map) return;
+    if (!target || target.length !== 2) return;
+    const [lat, lng] = target;
+    if (typeof lat !== "number" || typeof lng !== "number") return;
+    map.flyTo([lat, lng], map.getZoom(), {
+      duration: 0.75,
+    });
+  }, [map, target]);
+
+  return null;
+}
+
 // ---------- Plant Selection Modal Component ----------
 const PlantSelectionModal = ({ isOpen, onClose, observations, onSelectPlant }) => {
   if (!isOpen) return null;
@@ -650,18 +667,18 @@ export default function Heatmap() {
     (async () => {
       setLoading(true);
       setError("");
-      try {
-        const res = await api.get("/admin/observations?scope=endangered+nearby");
-        const data = Array.isArray(res.data) ? res.data : [];
-        if (mounted) setRows(data.length ? data : MOCK);
-      } catch (e) {
-        if (mounted) {
-          setRows(MOCK);
-          setError("Showing mock data (API unavailable).");
-        }
-      } finally {
-        if (mounted) setLoading(false);
+    try {
+      const data = await fetchHeatmapObservations();
+      if (mounted) setRows(data.length ? data : MOCK);
+    } catch (e) {
+      if (mounted) {
+        console.error(e);
+        setRows(MOCK);
+        setError("Showing mock data (API unavailable).");
       }
+    } finally {
+      if (mounted) setLoading(false);
+    }
     })();
     return () => { mounted = false; };
   }, []);
@@ -700,55 +717,105 @@ export default function Heatmap() {
   }, [onMouseMove, onMouseUp]);
 
   // Toggle mask function
-  const toggleMask = async (obsId) => {
-    setRows(prev =>
-      prev.map(r =>
-        r.observation_id === obsId ? { ...r, is_masked: !r.is_masked } : r
-      )
-    );
-    
-    if (selectedObservation && selectedObservation.observation_id === obsId) {
-      setSelectedObservation(prev => ({ ...prev, is_masked: !prev.is_masked }));
-    }
+  const toggleMask = useCallback(
+    async (obsId) => {
+      const target = rows.find((r) => r.observation_id === obsId);
+      if (!target) return;
 
-    try {
-      await api.patch(`/admin/observations/${obsId}/mask`, {});
-    } catch (e) {
-      setRows(prev =>
-        prev.map(r =>
-          r.observation_id === obsId ? { ...r, is_masked: !r.is_masked } : r
+      const nextValue = !target.is_masked;
+      const actionLabel = nextValue ? "mask" : "unmask";
+      const confirmed = window.confirm(
+        `Are you sure you want to ${actionLabel} observation ${obsId}?`
+      );
+      if (!confirmed) {
+        return;
+      }
+
+      setRows((prev) =>
+        prev.map((r) =>
+          r.observation_id === obsId ? { ...r, is_masked: nextValue } : r
         )
       );
-    }
-  };
+
+      if (selectedObservation && selectedObservation.observation_id === obsId) {
+        setSelectedObservation((prev) =>
+          prev ? { ...prev, is_masked: nextValue } : prev
+        );
+      }
+
+      try {
+        await setObservationMask(obsId, nextValue);
+      } catch (error) {
+        console.error(error);
+        window.alert("Failed to update visibility. Please try again.");
+        setRows((prev) =>
+          prev.map((r) =>
+            r.observation_id === obsId ? { ...r, is_masked: target.is_masked } : r
+          )
+        );
+        if (selectedObservation && selectedObservation.observation_id === obsId) {
+          setSelectedObservation((prev) =>
+            prev ? { ...prev, is_masked: target.is_masked } : prev
+          );
+        }
+      }
+    },
+    [rows, selectedObservation]
+  );
 
   // Filter and sort
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return rows.filter(r =>
-      !q ||
-      r.observation_id.toLowerCase().includes(q) ||
-      r.species.common_name.toLowerCase().includes(q) ||
-      r.location_name.toLowerCase().includes(q)
-    );
+    return rows.filter((r) => {
+      if (!q) return true;
+      const idMatch = String(r.observation_id ?? "")
+        .toLowerCase()
+        .includes(q);
+      const nameMatch = (r.species?.common_name ?? "")
+        .toLowerCase()
+        .includes(q);
+      const locationMatch = (r.location_name ?? "")
+        .toLowerCase()
+        .includes(q);
+      return idMatch || nameMatch || locationMatch;
+    });
   }, [rows, search]);
 
-  const sorted = useMemo(() => {
-    const copy = [...filtered];
-    copy.sort((a, b) => {
-      const A = a[sortBy];
-      const B = b[sortBy];
-      if (typeof A === "number" && typeof B === "number") {
-        return sortDir === "asc" ? A - B : B - A;
+    const getComparableValue = useCallback((item, key) => {
+      switch (key) {
+        case "species.common_name":
+          return item.species?.common_name ?? "";
+        case "location_name":
+          return item.location_name ?? "";
+        case "observation_id":
+          return item.observation_id ?? "";
+        default:
+          return item[key];
       }
-      const sa = (A ?? "").toString().toLowerCase();
-      const sb = (B ?? "").toString().toLowerCase();
-      if (sa < sb) return sortDir === "asc" ? -1 : 1;
-      if (sa > sb) return sortDir === "asc" ? 1 : -1;
-      return 0;
-    });
-    return copy;
-  }, [filtered, sortBy, sortDir]);
+    }, []);
+
+    const sorted = useMemo(() => {
+      const copy = [...filtered];
+      copy.sort((a, b) => {
+        const valueA = getComparableValue(a, sortBy);
+        const valueB = getComparableValue(b, sortBy);
+
+        if (
+          typeof valueA === "number" &&
+          typeof valueB === "number"
+        ) {
+          return sortDir === "asc" ? valueA - valueB : valueB - valueA;
+        }
+
+        const sa = String(valueA ?? "").toLowerCase();
+        const sb = String(valueB ?? "").toLowerCase();
+
+        if (sa < sb) return sortDir === "asc" ? -1 : 1;
+        if (sa > sb) return sortDir === "asc" ? 1 : -1;
+        return 0;
+      });
+      return copy;
+    }, [filtered, sortBy, sortDir, getComparableValue]);
 
   const setSort = (key) => {
     if (sortBy === key) {
@@ -761,26 +828,32 @@ export default function Heatmap() {
 
   // Heatmap points
   const heatPts = useMemo(() => {
-    const observationsToUse = selectedObservation 
-      ? rows.filter(r => r.species.species_id === selectedObservation.species.species_id)
-      : rows.filter(r => !r.is_masked);
+      const observationsToUse = selectedObservation
+        ? rows.filter(
+            (r) =>
+              r.species?.species_id === selectedObservation.species?.species_id
+          )
+        : rows.filter((r) => !r.is_masked);
 
     return observationsToUse.map(r => ({
-      lat: r.location_latitude,
-      lng: r.location_longitude,
-      intensity: r.species.is_endangered ? 1.8 : 1.0
+        lat: r.location_latitude,
+        lng: r.location_longitude,
+        intensity: r.species?.is_endangered ? 1.8 : 1.0
     }));
   }, [rows, selectedObservation]);
 
   // Filtered observations for selected species
   const filteredObservations = useMemo(() => {
     if (!selectedObservation) return [];
-    return rows.filter(obs => obs.species.species_id === selectedObservation.species.species_id);
+      return rows.filter(
+        (obs) =>
+          obs.species?.species_id === selectedObservation.species?.species_id
+      );
   }, [rows, selectedObservation]);
 
   // Check if any observations are visible for user
-  const visibleForUser = selectedObservation 
-    ? filteredObservations.some(obs => !obs.is_masked)
+    const visibleForUser = selectedObservation
+      ? filteredObservations.some(obs => !obs.is_masked)
     : true;
 
   const leftFlexBasis = `calc(100% - ${rightWidth + 8}px)`;
@@ -792,24 +865,6 @@ export default function Heatmap() {
       <div ref={containerRef} className="admin-heatwrap">
         {/* LEFT: Map */}
         <div className="leftPane" style={{ flexBasis: leftFlexBasis }}>
-          {/* Map mode toggle */}
-          <div className="mapTopBar">
-            <button
-              className={`btn small ${mode === "heatmap" ? "primary" : ""}`}
-              onClick={() => setMode("heatmap")}
-              disabled={!selectedObservation}
-            >
-              Heatmap
-            </button>
-            <button
-              className={`btn small ${mode === "markers" ? "primary" : ""}`}
-              onClick={() => setMode("markers")}
-              disabled={!selectedObservation}
-            >
-              Markers
-            </button>
-          </div>
-
           {/* Visibility badge */}
           {selectedObservation && (
             <div className={`visibility-badge ${!visibleForUser ? 'blocked' : ''}`}>
@@ -827,8 +882,18 @@ export default function Heatmap() {
               attribution='&copy; OpenStreetMap contributors'
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
+              <MapFocus
+                target={
+                  selectedObservation
+                    ? [
+                        selectedObservation.location_latitude,
+                        selectedObservation.location_longitude,
+                      ]
+                    : null
+                }
+              />
             
-            {mode === "heatmap" && selectedObservation && <HeatLayer points={heatPts} />}
+              {mode === "heatmap" && <HeatLayer points={heatPts} />}
 
             {mode === "markers" && 
               (selectedObservation ? filteredObservations : rows).map(r => (
@@ -904,14 +969,12 @@ export default function Heatmap() {
             <button 
               className={`btn ${mode === "heatmap" ? "primary" : ""}`}
               onClick={() => setMode("heatmap")}
-              disabled={!selectedObservation}
             >
               Heatmap
             </button>
             <button 
               className={`btn ${mode === "markers" ? "primary" : ""}`}
               onClick={() => setMode("markers")}
-              disabled={!selectedObservation}
             >
               Markers
             </button>
@@ -928,18 +991,9 @@ export default function Heatmap() {
 
           {/* Endangered Species Controls Panel */}
           <div className="controls-panel">
-            <div className="panel-header">
-              <div className="panel-title">Endangered Species Controls</div>
-              {!selectedObservation && (
-                <button 
-                  className="choose-button"
-                  onClick={() => setShowPlantModal(true)}
-                >
-                  <span>🌿</span>
-                  Choose a plant
-                </button>
-              )}
-            </div>
+              <div className="panel-header">
+                <div className="panel-title">Endangered Species Controls</div>
+              </div>
 
             {selectedObservation ? (
               <div className="selected-card">
@@ -961,10 +1015,15 @@ export default function Heatmap() {
                   <span>📍</span>
                   <span>{selectedObservation.location_name}</span>
                 </div>
-                <div className="card-row">
-                  <span>📊</span>
-                  <span>Confidence {(selectedObservation.confidence_score * 100).toFixed(0)}%</span>
-                </div>
+                  <div className="card-row">
+                    <span>📊</span>
+                    <span>
+                      Confidence{" "}
+                      {selectedObservation.confidence_score != null
+                        ? `${Math.round(selectedObservation.confidence_score * 100)}%`
+                        : "—"}
+                    </span>
+                  </div>
 
                 <div className="visibility-row">
                   <span>{visibleForUser ? '👁️' : '👁️‍🗨️'}</span>
@@ -1030,10 +1089,10 @@ export default function Heatmap() {
                             </span>
                           </td>
                           <td>
-                            <button
-                              className={`maskBtn ${r.is_masked ? "masked" : "visible"}`}
-                              onClick={() => toggleMask(r.observation_id)}
-                            >
+                              <button
+                                className={`maskBtn ${r.is_masked ? "masked" : "visible"}`}
+                                onClick={() => toggleMask(r.observation_id)}
+                              >
                               {r.is_masked ? "Masked" : "Visible"}
                             </button>
                           </td>
@@ -1057,12 +1116,12 @@ export default function Heatmap() {
       </div>
 
       {/* Plant Selection Modal */}
-      <PlantSelectionModal
-        isOpen={showPlantModal}
-        onClose={() => setShowPlantModal(false)}
-        observations={rows}
-        onSelectPlant={setSelectedObservation}
-      />
+        <PlantSelectionModal
+          isOpen={showPlantModal}
+          onClose={() => setShowPlantModal(false)}
+          observations={rows}
+          onSelectPlant={setSelectedObservation}
+        />
     </>
   );
 }

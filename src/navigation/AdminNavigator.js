@@ -2,7 +2,9 @@ import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { createDrawerNavigator, DrawerContentScrollView, DrawerItemList } from '@react-navigation/drawer';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+
+// ⬇️ *** IMPORT useAuth (CRITICAL) *** ⬇️
+import { useAuth } from '../context/AuthContext';
 
 import AdminUsersScreen from '../screens/admin/AdminUsersScreen';
 import AdminFlagUnsureScreen from '../screens/admin/AdminFlagUnsureScreen';
@@ -20,38 +22,34 @@ import AdminSupportAgent from '../screens/admin/components/AdminSupportAgent';
 
 const Drawer = createDrawerNavigator();
 
-const ADMIN_PROFILE = {
-  name: 'Flora Administrator',
-  role: 'Super Admin',
-  email: 'flora.admin@smartplant.dev',
-};
-
-const ADMIN_INITIALS = ADMIN_PROFILE.name
-  .split(' ')
-  .filter(Boolean)
-  .map((part) => part[0]?.toUpperCase() ?? '')
-  .join('')
-  .slice(0, 2) || 'AD';
-
+// (AdminDrawerContent is unchanged and correct from our last fix)
 function AdminDrawerContent(props) {
-  const navigation = useNavigation();
+  const { user, logout } = useAuth();
+  
+  // Handle case where user might be null briefly
+  const safeUser = user || { username: 'Admin', role_name: 'Admin', email: '' };
+
+  const adminInitials = safeUser.username
+    .split(' ')
+    .filter(Boolean)
+    .map((part) => part[0]?.toUpperCase() ?? '')
+    .join('')
+    .slice(0, 2) || 'AD';
 
   const handleLogout = () => {
-    navigation.reset({
-      index: 0,
-      routes: [{ name: 'Login' }],
-    });
+    logout();
   };
 
   return (
     <DrawerContentScrollView {...props} contentContainerStyle={styles.drawerScrollContainer}>
       <View style={styles.profileContainer}>
         <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{ADMIN_INITIALS}</Text>
+          <Text style={styles.avatarText}>{adminInitials}</Text>
         </View>
-        <Text style={styles.profileName}>{ADMIN_PROFILE.name}</Text>
-        <Text style={styles.profileRole}>{ADMIN_PROFILE.role}</Text>
-        <Text style={styles.profileEmail}>{ADMIN_PROFILE.email}</Text>
+        <Text style={styles.profileName}>{safeUser.username}</Text>
+        <Text style={styles.profileRole}>{safeUser.role_name}</Text>
+        <Text style={styles.profileEmail}>{safeUser.email}</Text>
+        
         <TouchableOpacity style={styles.logoutButton} onPress={handleLogout} activeOpacity={0.7} accessibilityRole="button">
           <Ionicons name="log-out-outline" size={18} color="#1E2D3D" />
           <Text style={styles.logoutText}>Logout</Text>
@@ -64,44 +62,64 @@ function AdminDrawerContent(props) {
 
       <View style={styles.drawerFooter}>
         <Text style={styles.footerText}>SmartPlant Admin Console</Text>
-        <Text style={styles.footerSubtext}>Mock data - backend coming soon</Text>
+        <Text style={styles.footerSubtext}>Version 1.0.0</Text>
       </View>
     </DrawerContentScrollView>
   );
 }
 
+// (List of screens with 'adminOnly' flag is unchanged and correct)
 const drawerScreens = [
   {
     name: ADMIN_ACTIVITY,
     label: 'Activity',
     component: AdminActivityScreen,
+    adminOnly: false, // Everyone with access can see this
   },
   {
     name: ADMIN_USERS,
     label: 'Users',
     component: AdminUsersScreen,
+    adminOnly: true, // 👈 *** SET TO TRUE ***
   },
   {
     name: ADMIN_FLAG_UNSURE,
     label: 'Flag Unsure',
     component: AdminFlagUnsureScreen,
+    adminOnly: false, // Everyone with access can see this
   },
   {
     name: ADMIN_HEATMAP,
     label: 'Heatmap',
     component: AdminHeatmapScreen,
+    adminOnly: false, // Everyone with access can see this
   },
   {
     name: ADMIN_IOT,
     label: 'IoT Monitoring',
     component: AdminIotScreen,
+    adminOnly: false, // Everyone with access can see this
   },
 ];
 
 export default function AdminNavigator() {
+  const { user } = useAuth();
+
+  // (Filtering logic is unchanged and correct)
+  const filteredScreens = drawerScreens.filter(screen => {
+    if (!screen.adminOnly) {
+      return true;
+    }
+    return user && user.role_id === 1;
+  });
+
   return (
     <Drawer.Navigator
-      initialRouteName={ADMIN_USERS}
+      // ⬇️ *** THIS IS THE FIX *** ⬇️
+      // We set the initial route to 'Activity', which all
+      // privileged users (admin + researcher) can see.
+      initialRouteName={ADMIN_ACTIVITY}
+      
       drawerContent={(props) => <AdminDrawerContent {...props} />}
       screenOptions={{
         headerStyle: { backgroundColor: '#FFFFFF' },
@@ -119,7 +137,8 @@ export default function AdminNavigator() {
           drawerLabelStyle: { fontSize: 15, fontWeight: '500', marginLeft: -12 },
       }}
     >
-        {drawerScreens.map((screen) => (
+        {/* We map over the correct 'filteredScreens' list */}
+        {filteredScreens.map((screen) => (
           <Drawer.Screen
             key={screen.name}
             name={screen.name}
@@ -139,6 +158,7 @@ export default function AdminNavigator() {
   );
 }
 
+// (Styles are unchanged)
 const styles = StyleSheet.create({
   drawerScrollContainer: {
     flexGrow: 1,

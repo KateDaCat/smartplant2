@@ -42,7 +42,6 @@ export default function Sidebar({ onLogout }) {
         ))}
       </nav>
 
-      {/* Logout Button at Bottom */}
       <div className="sidebar-footer">
         <button 
           className="sidebar-logout-btn"

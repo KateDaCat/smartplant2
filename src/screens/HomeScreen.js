@@ -138,7 +138,7 @@ const styles = StyleSheet.create({
   },
   header: {
     marginTop: 10,
-    marginBottom: 25, // Reduced to give more space for buttons
+    marginBottom: 25, 
   },
   greeting: {
     fontSize: 28,
@@ -196,26 +196,26 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   primaryTitle: {
-    fontSize: 27, // Slightly larger
+    fontSize: 27,
     fontWeight: "bold",
     color: "#2F3E46",
     marginBottom: 6,
   },
   primarySubtitle: {
-    fontSize: 15, // Slightly larger
+    fontSize: 15, 
     color: "#4A5568",
     fontWeight: "500",
   },
   primaryIcon: {
-    width: 105, // Slightly larger
-    height: 85, // Slightly larger
+    width: 105, 
+    height: 85, 
     resizeMode: "contain",
   },
   cardFooter: {
     marginTop: 12,
   },
   cardHint: {
-    fontSize: 14, // Slightly larger
+    fontSize: 14,
     color: "#2F3E46",
     fontWeight: "600",
     opacity: 0.8,
@@ -224,21 +224,21 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    gap: 10, // Slightly more gap
+    gap: 10, 
   },
   secondaryIcon: {
-    width: 45, // Increased from 40
-    height: 45, // Increased from 40
+    width: 45, 
+    height: 45, 
     resizeMode: "contain",
   },
   secondaryTitle: {
-    fontSize: 17, // Slightly larger
+    fontSize: 17, 
     fontWeight: "bold",
     color: "#FFFFFF",
     textAlign: "center",
   },
   secondaryDescription: {
-    fontSize: 13, // Slightly larger
+    fontSize: 13, 
     color: "#FFFFFF",
     textAlign: "center",
     opacity: 0.9,

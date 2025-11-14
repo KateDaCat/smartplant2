@@ -6,83 +6,38 @@ import WarningIcon from '@mui/icons-material/Warning';
 import SensorsIcon from '@mui/icons-material/Sensors';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
-
-const MOCK_IOT_DEVICES = [
-  {
-    device_id: 'DEV-001',
-    device_id_raw: 1,
-    device_name: 'Soil Monitor A1',
-    species_name: 'Rafflesia arnoldii',
-    location: {
-      name: 'Bako National Park',
-      latitude: 1.4667,
-      longitude: 110.3333,
-    },
-    readings: {
-      temperature: 28.4,
-      humidity: 78,
-      soil_moisture: 42,
-      motion_detected: false,
-    },
-    last_updated: '2025-10-21T12:45:00Z',
-    alerts: [],
-  },
-  {
-    device_id: 'DEV-014',
-    device_id_raw: 14,
-    device_name: 'Weather Station B3',
-    species_name: 'Nepenthes rajah',
-    location: {
-      name: 'Santubong Forest Reserve',
-      latitude: 1.595,
-      longitude: 110.345,
-    },
-    readings: {
-      temperature: 24.9,
-      humidity: 91,
-      soil_moisture: 65,
-      motion_detected: true,
-    },
-    last_updated: '2025-10-21T12:41:00Z',
-    alerts: ['humidity', 'motion'],
-  },
-  {
-    device_id: 'DEV-020',
-    device_id_raw: 20,
-    device_name: 'Trail Camera C2',
-    species_name: 'Dipterocarpus sarawakensis',
-    location: {
-      name: 'Lambir Hills',
-      latitude: 1.285,
-      longitude: 110.523,
-    },
-    readings: {
-      temperature: 26.8,
-      humidity: 84,
-      soil_moisture: 55,
-      motion_detected: false,
-    },
-    last_updated: '2025-10-21T12:36:00Z',
-    alerts: ['soil_moisture'],
-  },
-];
+import { fetchDevices, resolveDeviceAlerts } from '../services/apiClient'; // 👈 --- IMPORT API FUNCTIONS
 
 const Iot = () => {
   const [selectedDevice, setSelectedDevice] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [devices, setDevices] = useState([]);
+  const [devices, setDevices] = useState([]); // Start with empty array
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(null); // Added for error handling
 
   // Load data function
   const loadData = async () => {
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      setDevices(MOCK_IOT_DEVICES);
+      const data = await fetchDevices(); // 👈 --- CALL THE API
+      
+      // ❗ --- DATA TRANSFORMATION --- ❗
+      // Your backend returns 'alerts' as a string "motion, humidity"
+      // We must convert it to an array for the frontend to work.
+      const transformedData = data.map(device => ({
+        ...device,
+        // Check if alerts is a non-empty string, then split it
+        alerts: (device.alerts && typeof device.alerts === 'string') 
+          ? device.alerts.split(', ') 
+          : [],
+      }));
+
+      setDevices(transformedData);
+      setError(null); // Clear any previous errors
     } catch (err) {
       console.error("Failed to load data:", err);
+      setError("Failed to load device data. Please try again.");
     }
   };
 
@@ -118,7 +73,9 @@ const Iot = () => {
         device.device_name,
         device.device_id,
         device.species_name,
-        device.location.name,
+        // ❗ FIXED: Backend provides coordinates, not location.name
+        device.location.latitude.toString(),
+        device.location.longitude.toString(),
       ].join(' ').toLowerCase();
       
       return searchableText.includes(normalizedQuery);
@@ -139,13 +96,18 @@ const Iot = () => {
     setSelectedDevice(null);
   };
 
-  // Resolve alerts
-  const handleResolveAlerts = (deviceId) => {
-    setDevices(prev => prev.map(device => 
-      device.device_id === deviceId 
-        ? { ...device, alerts: [] }
-        : device
-    ));
+  // ❗ --- UPDATED: Resolve alerts via API --- ❗
+  const handleResolveAlerts = async (rawDeviceId) => {
+    try {
+      // 1. Call the API to resolve alerts in the database
+      await resolveDeviceAlerts(rawDeviceId);
+      
+      // 2. Refresh the data from the server to show the change
+      await loadData(); 
+    } catch (err) {
+      console.error(`Failed to resolve alerts for device ${rawDeviceId}:`, err);
+      alert("Failed to resolve alerts. Please try again.");
+    }
   };
 
   // Show loading state
@@ -155,6 +117,22 @@ const Iot = () => {
         <div style={styles.loading}>
           <div style={styles.spinner}></div>
           <p>Loading devices...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show error state
+  if (error && devices.length === 0) {
+    return (
+      <div style={styles.container}>
+        <div style={styles.emptyState}>
+          <WarningIcon style={{...styles.emptyIcon, color: '#dc2626'}} />
+          <p style={styles.emptyText}>Error Loading Devices</p>
+          <p style={styles.emptySubtext}>{error}</p>
+          <button style={{...styles.refreshButton, marginTop: '16px'}} onClick={loadData}>
+            Try Again
+          </button>
         </div>
       </div>
     );
@@ -213,8 +191,13 @@ const Iot = () => {
               <div key={device.device_id} style={styles.alertRow}>
                 <div style={styles.cell}>
                   <div style={styles.plantName}>{device.species_name}</div>
-                  <div style={styles.location}>{device.location.name}</div>
+                  {/* ❗ FIXED: Show coordinates as location.name isn't available */}
+                  <div style={styles.location}>
+                    Lat: {device.location.latitude.toFixed(4)}, 
+                    Lng: {device.location.longitude.toFixed(4)}
+                  </div>
                   <div style={styles.alertBadge}>
+                    {/* This works now because we converted alerts to an array */}
                     Alerts: {device.alerts.join(', ')}
                   </div>
                 </div>
@@ -226,7 +209,8 @@ const Iot = () => {
                   <div style={styles.actions}>
                     <button 
                       style={styles.resolveButton}
-                      onClick={() => handleResolveAlerts(device.device_id)}
+                      // ❗ FIXED: Pass the raw ID (e.g., 14) to the API
+                      onClick={() => handleResolveAlerts(device.device_id_raw)}
                     >
                       <CheckCircleIcon style={styles.buttonIcon} />
                       Resolve
@@ -262,7 +246,11 @@ const Iot = () => {
               <div key={device.device_id} style={styles.row}>
                 <div style={styles.cell}>
                   <div style={styles.plantName}>{device.species_name}</div>
-                  <div style={styles.location}>{device.location.name}</div>
+                  {/* ❗ FIXED: Show coordinates as location.name isn't available */}
+                  <div style={styles.location}>
+                    Lat: {device.location.latitude.toFixed(4)}, 
+                    Lng: {device.location.longitude.toFixed(4)}
+                  </div>
                 </div>
                 <div style={styles.cell}>
                   <div style={styles.deviceId}>{device.device_id}</div>
@@ -309,6 +297,7 @@ const Iot = () => {
   );
 };
 
+// --- STYLES (Unchanged) ---
 const styles = {
   container: {
     padding: '20px',

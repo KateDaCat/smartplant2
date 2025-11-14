@@ -29,7 +29,8 @@ const DetailRow = ({ label, value }) => (
   </View>
 );
 
-export default function AdminUserDetailScreen({ route }) {
+// ⬇️ *** navigation ADDED here ***
+export default function AdminUserDetailScreen({ route, navigation }) {
   const user = route?.params?.user ?? FALLBACK_USER;
   const onUpdate = route?.params?.onUpdate;
 
@@ -99,6 +100,21 @@ export default function AdminUserDetailScreen({ route }) {
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
+
+        {/* BACK BUTTON */}
+        <View style={styles.headerRow}>
+          <TouchableOpacity
+            onPress={() => navigation.canGoBack() && navigation.goBack()}
+            style={styles.backButton}
+            activeOpacity={0.7}
+            accessibilityLabel="Go back"
+          >
+            <Ionicons name="arrow-back" size={20} color="#0F172A" />
+            <Text style={styles.backButtonText}>Back</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Header Card */}
         <View style={styles.headerCard}>
           <View style={styles.avatarWrapper}>
             <Image source={avatarSource} style={styles.avatar} resizeMode="cover" />
@@ -129,6 +145,7 @@ export default function AdminUserDetailScreen({ route }) {
           </View>
         </View>
 
+        {/* Contact Details */}
         <View style={styles.infoCard}>
           <Text style={styles.sectionTitle}>Contact Details</Text>
           <DetailRow label="Email" value={currentUser.email} />
@@ -136,8 +153,10 @@ export default function AdminUserDetailScreen({ route }) {
           <DetailRow label="Created" value={formatDate(currentUser.created_at)} />
         </View>
 
+        {/* Controls */}
         <View style={styles.controlsCard}>
           <Text style={styles.sectionTitle}>Account Controls</Text>
+
           <View style={styles.controlRow}>
             <Text style={styles.controlLabel}>Active Status</Text>
             <View style={styles.toggleGroup}>
@@ -206,6 +225,26 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
     gap: 20,
   },
+
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    marginBottom: 0,
+  },
+  backButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 4,
+  },
+  backButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#0F172A',
+  },
+
   headerCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 18,
@@ -249,6 +288,7 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 1,
   },
+
   statusBadge: {
     alignSelf: 'flex-start',
     flexDirection: 'row',
@@ -276,6 +316,7 @@ const styles = StyleSheet.create({
   statusBadgeTextInactive: {
     color: '#7F1D1D',
   },
+
   infoCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
@@ -289,6 +330,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     elevation: 1,
   },
+
   controlsCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
@@ -302,6 +344,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     elevation: 1,
   },
+
   sectionTitle: {
     fontSize: 14,
     fontWeight: '700',
@@ -309,6 +352,7 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.8,
   },
+
   detailRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -326,6 +370,7 @@ const styles = StyleSheet.create({
     maxWidth: '60%',
     textAlign: 'right',
   },
+
   controlRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -336,11 +381,12 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#0F172A',
   },
-  statusToggle: {
+  toggleGroup: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
+
   statusText: {
     fontSize: 12,
     fontWeight: '600',
@@ -353,6 +399,7 @@ const styles = StyleSheet.create({
   statusInactive: {
     color: '#B03A2E',
   },
+
   roleSelect: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -367,6 +414,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#1F2937',
   },
+
   roleDropdown: {
     marginTop: 10,
     borderRadius: 12,
@@ -384,6 +432,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: '#1F2937',
   },
+
   divider: {
     height: 1,
     backgroundColor: '#E2E8F0',

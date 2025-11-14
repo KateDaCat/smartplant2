@@ -8,7 +8,7 @@ import ScannerOverlay from '../screens/components/ScannerOverlay';
 
 // const API_BASE = 'http://localhost:3000';
 // const API_BASE = 'http://10.0.2.2:3000';
-const API_BASE = '192.168.0.112:3000';
+const API_BASE = 'http://192.168.0.112:3000';
 const LOW_CONFIDENCE_THRESHOLD = 60;
 
 export default function PreviewScreen() {

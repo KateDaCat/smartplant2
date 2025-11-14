@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { loginUser } from '../services/apiClient'; // 👈 --- IMPORT THE REAL API FUNCTION
 
 const Login = ({ onLogin }) => {
   const [step, setStep] = useState(1); // 1: credentials, 2: Email MFA
@@ -7,19 +8,12 @@ const Login = ({ onLogin }) => {
   const [mfaCode, setMfaCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  
+  const [pendingUser, setPendingUser] = useState(null); 
+  
+  const [mockCode, setMockCode] = useState('');
   const [userEmail, setUserEmail] = useState('');
-  const [mockCode, setMockCode] = useState(''); // Store the mock code for testing
 
-  // Mock admin user for testing
-  const MOCK_ADMIN = {
-    email: "admin@smartplant.dev",
-    password: "admin123",
-    name: "Administrator",
-    role: "Admin",
-    userId: 1
-  };
-
-  // Generate a random 6-digit code
   const generateMockCode = () => {
     return Math.floor(100000 + Math.random() * 900000).toString();
   };
@@ -30,27 +24,38 @@ const Login = ({ onLogin }) => {
     setError('');
 
     try {
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      const response = await loginUser(email, password);
 
-      // Mock credential verification
-      if (email === MOCK_ADMIN.email && password === MOCK_ADMIN.password) {
-        // Store email for MFA step
-        setUserEmail(email);
-        
-        // Generate and display mock code
-        const code = generateMockCode();
-        setMockCode(code);
-        
-        // Simulate sending code to email
-        console.log(`🔐 MOCK EMAIL: Your verification code is ${code}`);
-        
-        setStep(2);
+      if (response.success) {
+        const user = response.user;
+
+        if (user.role_id === 1 || user.role_id === 2) {
+          setPendingUser(user); 
+          setUserEmail(user.email); 
+          
+          const code = generateMockCode();
+          setMockCode(code);
+          
+          console.log(`🔐 MOCK EMAIL: Your verification code is ${code}`);
+          
+          setStep(2);
+        } else {
+          throw new Error('Access Denied: You do not have permission to access this portal.');
+        }
       } else {
-        throw new Error('Invalid email or password');
+        // This part might not be reached if the API always throws a 401 on failure
+        throw new Error(response.message);
       }
     } catch (err) {
-      setError(err.message);
+      // ❗ --- THIS IS THE FIX --- ❗
+      // Check if the error has a response from the backend
+      if (err.response && err.response.data && err.response.data.message) {
+        // Use the specific error message from your API (e.g., "Invalid credentials")
+        setError(err.response.data.message);
+      } else {
+        // Fallback for network errors or other issues
+        setError(err.message || 'An error occurred. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
@@ -62,18 +67,10 @@ const Login = ({ onLogin }) => {
     setError('');
 
     try {
-      // Simulate API call delay
       await new Promise(resolve => setTimeout(resolve, 1000));
 
-      // Mock MFA code verification
       if (mfaCode === mockCode) {
-        // Success - login user
-        onLogin({
-          name: MOCK_ADMIN.name,
-          email: MOCK_ADMIN.email,
-          role: MOCK_ADMIN.role,
-          userId: MOCK_ADMIN.userId
-        });
+        onLogin(pendingUser);
       } else {
         throw new Error('Invalid verification code');
       }
@@ -89,26 +86,23 @@ const Login = ({ onLogin }) => {
     setError('');
 
     try {
-      // Simulate API call delay
       await new Promise(resolve => setTimeout(resolve, 1000));
-
-      // Generate new mock code
       const newCode = generateMockCode();
       setMockCode(newCode);
-      
-      // Simulate resending code
       console.log(`🔐 MOCK EMAIL: Your new verification code is ${newCode}`);
-      
       setError('New code sent to your email! Check the browser console for the code.');
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
+
   };
 
   const maskEmail = (email) => {
+    if (!email) return '';
     const [local, domain] = email.split('@');
+    if (local.length <= 2) return email; // Avoid masking short emails
     const maskedLocal = local.slice(0, 2) + '*'.repeat(local.length - 2);
     return `${maskedLocal}@${domain}`;
   };
@@ -120,9 +114,8 @@ const Login = ({ onLogin }) => {
           <h1 style={styles.title}>Smart Plant Sarawak</h1>
           <p style={styles.subtitle}>Admin Portal</p>
           
-          {/* MOCK TESTING BANNER - Remove in production */}
           <div style={styles.mockBanner}>
-            <strong>TEST MODE</strong> - Use: <code>admin@smartplant.dev</code> / <code>admin123</code>
+            <strong>TEST MODE</strong> - Login with real Admin/Researcher credentials.
           </div>
         </div>
 
@@ -141,7 +134,7 @@ const Login = ({ onLogin }) => {
                 style={styles.input}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="admin@smartplant.dev"
+                placeholder="admin@example.com"
                 required
               />
             </div>
@@ -153,7 +146,7 @@ const Login = ({ onLogin }) => {
                 style={styles.input}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="admin123"
+                placeholder="Your password"
                 required
               />
             </div>
@@ -165,13 +158,6 @@ const Login = ({ onLogin }) => {
             >
               {loading ? 'Signing in...' : 'Sign In'}
             </button>
-
-            {/* Mock credentials hint */}
-            <div style={styles.mockHint}>
-              <p><strong>Test Credentials:</strong></p>
-              <p>Email: <code>admin@smartplant.dev</code></p>
-              <p>Password: <code>admin123</code></p>
-            </div>
           </form>
         )}
 
@@ -187,7 +173,6 @@ const Login = ({ onLogin }) => {
                 Check your email and enter the code below
               </p>
               
-              {/* MOCK CODE DISPLAY - Remove in production */}
               <div style={styles.mockCodeDisplay}>
                 <p><strong>🛠️ DEVELOPMENT MODE</strong></p>
                 <p>Your verification code is: <code style={styles.code}>{mockCode}</code></p>
@@ -252,6 +237,7 @@ const Login = ({ onLogin }) => {
   );
 };
 
+// --- STYLES (Unchanged) ---
 const styles = {
   container: {
     display: 'flex',
@@ -353,7 +339,7 @@ const styles = {
     fontSize: '48px',
     marginBottom: '16px',
   },
-  mfaTitle: {
+mfaTitle: {
     fontSize: '18px',
     fontWeight: '600',
     color: '#1F2A37',

@@ -1,40 +1,85 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import UserDetailModal from "../components/UserDetailModal";
 import SearchIcon from "@mui/icons-material/Search";
 import PeopleIcon from "@mui/icons-material/People";
+import {
+  fetchUsers,
+  fetchRoles,
+  updateUser as persistUser,
+} from "../services/apiClient";
 
-// Mock data fallback (remove when backend API ready)
-const MOCK_USERS = [
-  {
-    user_id: 1,
-    username: "flora_admin",
-    email: "flora@smartplant.dev",
-    role: "Admin",
-    phone: "+60 12-345 6789",
-    active: true,
-    created_at: "2024-06-10T09:45:00Z",
-  },
-  {
-    user_id: 2,
-    username: "ranger.sam", 
-    email: "sam@smartplant.dev",
-    role: "Plant Researcher",
-    phone: "+60 13-222 1111",
-    active: false,
-    created_at: "2024-08-21T14:20:00Z",
-  },
-  {
-    user_id: 3,
-    username: "data.joy",
-    email: "joy@smartplant.dev",
-    role: "User",
-    phone: "+60 17-555 6666",
-    active: true,
-    created_at: "2025-01-04T11:05:00Z",
-  },
-];
+const DEFAULT_ROLE_OPTIONS = ["Admin", "Plant Researcher", "User"];
 
-const ROLE_OPTIONS = ["Admin", "Plant Researcher", "User"];
+const buildRoleMetadata = (rolesList) => {
+  const nameToId = {};
+  const idToName = {};
+  const options = [];
+
+  const register = (name, id) => {
+    if (!name && name !== 0) return;
+    if (id == null) return;
+    const normalizedName = String(name).trim();
+    if (!normalizedName) return;
+    const numericId = Number(id);
+    if (Number.isNaN(numericId)) return;
+
+    idToName[numericId] = normalizedName;
+    nameToId[normalizedName] = numericId;
+    nameToId[normalizedName.toLowerCase()] = numericId;
+    if (!options.includes(normalizedName)) {
+      options.push(normalizedName);
+    }
+  };
+
+  if (Array.isArray(rolesList) && rolesList.length > 0) {
+    rolesList.forEach((role) =>
+      register(role?.role_name, role?.role_id)
+    );
+  }
+
+  if (options.length === 0) {
+    DEFAULT_ROLE_OPTIONS.forEach((roleName, index) =>
+      register(roleName, index + 1)
+    );
+  }
+
+  return { nameToId, idToName, options };
+};
+
+const decorateUsers = (apiUsers, idToName) => {
+  if (!Array.isArray(apiUsers)) return [];
+
+  return apiUsers.map((user) => {
+    const roleId =
+      typeof user.role_id === "number" || typeof user.role_id === "string"
+        ? Number(user.role_id)
+        : null;
+    const resolvedRole =
+      (typeof user.role_name === "string" && user.role_name.trim()) ||
+      (roleId != null ? idToName[roleId] : null) ||
+      "Unknown";
+    const activeField =
+      user.is_active ?? user.active ?? user.status ?? true;
+
+    return {
+      ...user,
+      role_id: roleId,
+      role: resolvedRole,
+      active: Boolean(activeField),
+      email: user.email ?? "",
+      phone: user.phone ?? "",
+    };
+  });
+};
+
+const buildUpdatePayload = (user) => ({
+  username: user.username,
+  email: user.email,
+  role_id: user.role_id,
+  avatar_url: user.avatar_url ?? null,
+  phone: user.phone ?? null,
+  is_active: user.active ? 1 : 0,
+});
 
 export default function Users() {
   const [users, setUsers] = useState([]);
@@ -42,11 +87,229 @@ export default function Users() {
   const [roleMenu, setRoleMenu] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [hoveredDropdownItem, setHoveredDropdownItem] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [rolesMeta, setRolesMeta] = useState(() =>
+    buildRoleMetadata([])
+  );
+  const [updatingMap, setUpdatingMap] = useState({});
 
-  // Load mock first, replace with API later
-  useEffect(() => {
-    setUsers(MOCK_USERS);
+  const roleOptions = rolesMeta.options;
+  const roleNameToId = rolesMeta.nameToId;
+  const idToRoleName = rolesMeta.idToName;
+
+  const markUpdating = useCallback((userId, value) => {
+    setUpdatingMap((prev) => {
+      const next = { ...prev };
+      if (value) {
+        next[userId] = true;
+      } else {
+        delete next[userId];
+      }
+      return next;
+    });
   }, []);
+
+  const isUserBusy = useCallback(
+    (userId) => Boolean(updatingMap[userId]),
+    [updatingMap]
+  );
+
+  const loadUsers = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const [rolesResponse, usersResponse] = await Promise.all([
+        fetchRoles().catch((err) => {
+          console.warn("Failed to load roles:", err);
+          return [];
+        }),
+        fetchUsers(),
+      ]);
+
+      const metadata = buildRoleMetadata(rolesResponse);
+      const decoratedUsers = decorateUsers(usersResponse, metadata.idToName);
+
+      setRolesMeta(metadata);
+      setUsers(decoratedUsers);
+      setSelectedUser((prev) => {
+        if (!prev) return prev;
+        return (
+          decoratedUsers.find((user) => user.user_id === prev.user_id) || prev
+        );
+      });
+    } catch (err) {
+      console.error(err);
+      setError("Failed to load users.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadUsers();
+  }, [loadUsers]);
+
+  const applyOptimisticUpdate = useCallback((userId, updatedUser) => {
+    setUsers((prev) =>
+      prev.map((user) =>
+        user.user_id === userId ? { ...user, ...updatedUser } : user
+      )
+    );
+    setSelectedUser((prev) => {
+      if (prev && prev.user_id === userId) {
+        return { ...prev, ...updatedUser };
+      }
+      return prev;
+    });
+  }, []);
+
+  const revertUserUpdate = useCallback((snapshot) => {
+    setUsers((prev) =>
+      prev.map((user) =>
+        user.user_id === snapshot.user_id ? { ...snapshot } : user
+      )
+    );
+    setSelectedUser((prev) => {
+      if (prev && prev.user_id === snapshot.user_id) {
+        return { ...snapshot };
+      }
+      return prev;
+    });
+  }, []);
+
+  const runUserUpdate = useCallback(
+    async (userId, updater, errorMessage) => {
+      const currentUser = users.find((user) => user.user_id === userId);
+      if (!currentUser) return false;
+
+      const snapshot = { ...currentUser };
+      const nextUser =
+        typeof updater === "function"
+          ? updater({ ...snapshot })
+          : { ...snapshot, ...updater };
+
+      if (!nextUser || typeof nextUser !== "object") {
+        return false;
+      }
+
+      applyOptimisticUpdate(userId, nextUser);
+      markUpdating(userId, true);
+      setError(null);
+
+      try {
+        await persistUser(userId, buildUpdatePayload(nextUser));
+        return true;
+      } catch (err) {
+        console.error(err);
+        setError(errorMessage);
+        revertUserUpdate(snapshot);
+        return false;
+      } finally {
+        markUpdating(userId, false);
+      }
+    },
+    [applyOptimisticUpdate, markUpdating, revertUserUpdate, users]
+  );
+
+  const updateStatus = useCallback(
+    async (userId, nextValue = null, options = {}) => {
+      const { skipConfirm = false } = options;
+      const user = users.find((u) => u.user_id === userId);
+      if (!user) return false;
+      if (isUserBusy(userId)) return false;
+
+      const desiredValue =
+        nextValue == null ? !user.active : Boolean(nextValue);
+
+      if (desiredValue === user.active) {
+        return true;
+      }
+
+      if (!skipConfirm) {
+        const actionWord = desiredValue ? "activate" : "deactivate";
+        const confirmed = window.confirm(
+          `Are you sure you want to ${actionWord} ${user.username}'s account?`
+        );
+        if (!confirmed) {
+          return false;
+        }
+      }
+
+      return runUserUpdate(
+        userId,
+        (current) => ({
+          ...current,
+          active: desiredValue,
+        }),
+        "Failed to update user status."
+      );
+    },
+    [users, isUserBusy, runUserUpdate]
+  );
+
+  const changeRole = useCallback(
+    async (userId, roleName, options = {}) => {
+      const { skipConfirm = false } = options;
+      const user = users.find((u) => u.user_id === userId);
+      if (!user) return false;
+      if (isUserBusy(userId)) return false;
+
+      const candidate =
+        typeof roleName === "string" ? roleName.trim() : roleName;
+      const roleId =
+        candidate != null
+          ? roleNameToId[candidate] ??
+            (typeof candidate === "string"
+              ? roleNameToId[candidate.toLowerCase()]
+              : undefined)
+          : undefined;
+
+      if (!roleId) {
+        setError("Unknown role selected.");
+        return false;
+      }
+
+      if (user.role === candidate && user.role_id === roleId) {
+        setRoleMenu(null);
+        setHoveredDropdownItem(null);
+        return true;
+      }
+
+      const updatedRoleName =
+        typeof candidate === "string" && candidate.length > 0
+          ? candidate
+          : idToRoleName[roleId] ?? candidate;
+
+      if (!skipConfirm) {
+        const confirmed = window.confirm(
+          `Assign ${updatedRoleName} role to ${user.username}?`
+        );
+        if (!confirmed) {
+          return false;
+        }
+      }
+
+      const success = await runUserUpdate(
+        userId,
+        (current) => ({
+          ...current,
+          role: updatedRoleName,
+          role_id: roleId,
+        }),
+        "Failed to update user role."
+      );
+
+      if (success) {
+        setRoleMenu(null);
+        setHoveredDropdownItem(null);
+      }
+
+      return success;
+    },
+    [users, isUserBusy, roleNameToId, idToRoleName, runUserUpdate]
+  );
 
   // Search functionality from mobile
   const filteredUsers = useMemo(() => {
@@ -56,39 +319,15 @@ export default function Users() {
         if (!normalizedQuery) return true;
         return (
           user.username.toLowerCase().includes(normalizedQuery) ||
-          user.phone.toLowerCase().includes(normalizedQuery) ||
+          (user.email || "").toLowerCase().includes(normalizedQuery) ||
+          String(user.phone ?? "")
+            .toLowerCase()
+            .includes(normalizedQuery) ||
           String(user.user_id).includes(normalizedQuery)
         );
       })
       .sort((a, b) => a.user_id - b.user_id); // Changed to sort by user_id in ascending order
   }, [searchQuery, users]);
-
-  const toggleStatus = (id) => {
-    setUsers((prev) =>
-      prev.map((u) =>
-        u.user_id === id ? { ...u, active: !u.active } : u
-      )
-    );
-  };
-
-  const updateRole = (id, role) => {
-    setUsers((prev) =>
-      prev.map((u) => (u.user_id === id ? { ...u, role } : u))
-    );
-    setRoleMenu(null);
-    setHoveredDropdownItem(null);
-  };
-
-  const handleUserUpdate = (updatedUser) => {
-    if (!updatedUser || typeof updatedUser.user_id === 'undefined') {
-      return;
-    }
-    setUsers((prev) =>
-      prev.map((user) =>
-        user.user_id === updatedUser.user_id ? { ...user, ...updatedUser } : user
-      )
-    );
-  };
 
   const getDropdownItemStyle = (role) => {
     const baseStyle = {
@@ -115,20 +354,33 @@ export default function Users() {
         Manage administrator and researcher accounts. All actions sync with backend & database.
       </p>
 
+      {error && (
+        <div style={styles.errorBanner}>
+          <span>{error}</span>
+          <button style={styles.retryButton} onClick={loadUsers}>
+            Retry
+          </button>
+        </div>
+      )}
+
+      {loading && users.length > 0 && (
+        <div style={styles.syncingText}>Refreshing users...</div>
+      )}
+
       {/* Search Bar from mobile */}
       <div style={styles.searchBar}>
         <SearchIcon style={styles.searchIcon} />
         <input
           type="text"
           style={styles.searchInput}
-          placeholder="Search by username, phone, or ID"
+          placeholder="Search by username, email, phone, or ID"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
         />
         {searchQuery.length > 0 && (
-          <button 
+          <button
             style={styles.clearButton}
-            onClick={() => setSearchQuery('')}
+            onClick={() => setSearchQuery("")}
             aria-label="Clear search"
           >
             ×
@@ -151,92 +403,123 @@ export default function Users() {
           </thead>
 
           <tbody>
-            {filteredUsers.length === 0 ? (
+            {loading && users.length === 0 ? (
+              <tr>
+                <td colSpan="7" style={styles.loadingState}>
+                  Loading users...
+                </td>
+              </tr>
+            ) : filteredUsers.length === 0 ? (
               <tr>
                 <td colSpan="7" style={styles.emptyState}>
                   <div style={styles.emptyStateContent}>
                     <PeopleIcon style={styles.emptyStateIcon} />
-                    <p style={styles.emptyStateText}>No users found. Try a different search.</p>
+                    <p style={styles.emptyStateText}>
+                      No users found. Try a different search.
+                    </p>
                   </div>
                 </td>
               </tr>
             ) : (
-              filteredUsers.map((user) => (
-                <tr key={user.user_id}>
-                  <td style={styles.td}>{user.user_id}</td>
-                  <td style={styles.td}>
-                    <span style={!user.active ? styles.usernameInactive : {}}>
-                      {user.username}
-                    </span>
-                  </td>
-                  <td style={styles.td}>{user.email}</td>
-                  <td style={styles.td}>{user.phone}</td>
+              filteredUsers.map((user) => {
+                const busy = isUserBusy(user.user_id);
+                return (
+                  <tr key={user.user_id}>
+                    <td style={styles.td}>{user.user_id}</td>
+                    <td style={styles.td}>
+                      <span style={!user.active ? styles.usernameInactive : {}}>
+                        {user.username}
+                      </span>
+                    </td>
+                    <td style={styles.td}>{user.email || "—"}</td>
+                    <td style={styles.td}>{user.phone || "—"}</td>
 
-                  {/* Role Dropdown */}
-                  <td style={styles.td}>
-                    <div style={styles.roleColumn}>
-                      <button
-                        style={styles.roleBtn}
-                        onClick={() =>
-                          setRoleMenu(roleMenu === user.user_id ? null : user.user_id)
-                        }
-                      >
-                        {user.role} ▼
-                      </button>
+                    {/* Role Dropdown */}
+                    <td style={styles.td}>
+                      <div style={styles.roleColumn}>
+                        <button
+                          style={{
+                            ...styles.roleBtn,
+                            opacity: busy ? 0.6 : 1,
+                            cursor: busy ? "not-allowed" : "pointer",
+                          }}
+                          disabled={busy}
+                          onClick={() => {
+                            if (busy) return;
+                            setRoleMenu(
+                              roleMenu === user.user_id ? null : user.user_id
+                            );
+                          }}
+                        >
+                          {busy ? "Saving..." : `${user.role} ▼`}
+                        </button>
 
-                      {roleMenu === user.user_id && (
-                        <div style={styles.dropdown}>
-                          {ROLE_OPTIONS.map((r) => (
-                            <div
-                              key={r}
-                              style={getDropdownItemStyle(r)}
-                              onMouseEnter={() => setHoveredDropdownItem(r)}
-                              onMouseLeave={() => setHoveredDropdownItem(null)}
-                              onClick={() => updateRole(user.user_id, r)}
-                            >
-                              {r}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </td>
-
-                  {/* Centered status text + toggle */}
-                  <td style={styles.td}>
-                    <div style={styles.statusContainer}>
-                      <div style={styles.statusText}>
-                        {user.active ? "Active" : "Inactive"}
+                        {roleMenu === user.user_id && (
+                          <div style={styles.dropdown}>
+                            {roleOptions.map((option) => (
+                              <div
+                                key={option}
+                                style={getDropdownItemStyle(option)}
+                                onMouseEnter={() => setHoveredDropdownItem(option)}
+                                onMouseLeave={() => setHoveredDropdownItem(null)}
+                                onClick={() => {
+                                  if (busy) return;
+                                  changeRole(user.user_id, option);
+                                }}
+                              >
+                                {option}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
+                    </td>
 
-                      <div
-                        style={{
-                          ...styles.toggle,
-                          backgroundColor: user.active ? "#3AA272" : "#D0D7DD",
-                        }}
-                        onClick={() => toggleStatus(user.user_id)}
-                      >
+                    {/* Centered status text + toggle */}
+                    <td style={styles.td}>
+                      <div style={styles.statusContainer}>
+                        <div style={styles.statusText}>
+                          {busy
+                            ? "Updating..."
+                            : user.active
+                            ? "Active"
+                            : "Inactive"}
+                        </div>
+
                         <div
                           style={{
-                            ...styles.toggleCircle,
-                            marginLeft: user.active ? "22px" : "2px",
+                            ...styles.toggle,
+                            backgroundColor: user.active ? "#3AA272" : "#D0D7DD",
+                            opacity: busy ? 0.5 : 1,
+                            cursor: busy ? "not-allowed" : "pointer",
                           }}
-                        />
+                          onClick={() => {
+                            if (busy) return;
+                            updateStatus(user.user_id);
+                          }}
+                        >
+                          <div
+                            style={{
+                              ...styles.toggleCircle,
+                              marginLeft: user.active ? "22px" : "2px",
+                            }}
+                          />
+                        </div>
                       </div>
-                    </div>
-                  </td>
+                    </td>
 
-                  {/* Centered View button */}
-                  <td style={styles.td}>
-                    <button
-                      style={styles.viewBtn}
-                      onClick={() => setSelectedUser(user)}
-                    >
-                      View
-                    </button>
-                  </td>
-                </tr>
-              ))
+                    {/* Centered View button */}
+                    <td style={styles.td}>
+                      <button
+                        style={styles.viewBtn}
+                        onClick={() => setSelectedUser(user)}
+                      >
+                        View
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
@@ -244,10 +527,13 @@ export default function Users() {
 
       {/* Enhanced User Detail Modal */}
       {selectedUser && (
-        <UserDetailModal 
-          user={selectedUser} 
+        <UserDetailModal
+          user={selectedUser}
           onClose={() => setSelectedUser(null)}
-          onUserUpdate={handleUserUpdate}
+          roleOptions={roleOptions}
+          onChangeRole={changeRole}
+          onChangeActive={updateStatus}
+          isBusy={isUserBusy(selectedUser.user_id)}
         />
       )}
     </div>
@@ -269,10 +555,40 @@ const styles = {
   },
 
   pageSubtitle: {
-    fontSize: "14px",
-    marginBottom: "20px",
-    color: "#566573",
-  },
+      fontSize: "14px",
+      marginBottom: "20px",
+      color: "#566573",
+    },
+
+  errorBanner: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: "12px",
+      padding: "12px 16px",
+      borderRadius: "10px",
+      backgroundColor: "#FEE2E2",
+      color: "#7F1D1D",
+      border: "1px solid #FCA5A5",
+      marginBottom: "16px",
+    },
+
+  retryButton: {
+      padding: "6px 12px",
+      borderRadius: "8px",
+      border: "none",
+      backgroundColor: "#1E88E5",
+      color: "#fff",
+      cursor: "pointer",
+      fontSize: "13px",
+      fontWeight: 600,
+    },
+
+  syncingText: {
+      fontSize: "12px",
+      color: "#64748B",
+      marginBottom: "8px",
+    },
 
   // Search bar styles from mobile
   searchBar: {
@@ -372,10 +688,17 @@ const styles = {
   },
 
   emptyStateText: {
-    fontSize: "14px",
-    color: "#64748B",
-    margin: 0,
-  },
+      fontSize: "14px",
+      color: "#64748B",
+      margin: 0,
+    },
+
+  loadingState: {
+      padding: "40px 20px",
+      textAlign: "center",
+      fontSize: "14px",
+      color: "#475569",
+    },
 
   // Role button + dropdown
   roleColumn: {

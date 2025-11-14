@@ -1,37 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import ShowChartIcon from '@mui/icons-material/ShowChart';
+import { fetchDeviceHistory } from '../services/apiClient'; 
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import TrendingDownIcon from '@mui/icons-material/TrendingDown';
 import TrendingFlatIcon from '@mui/icons-material/TrendingFlat';
-
-// Mock API function - replace with your actual API
-const fetchDeviceHistory = async (deviceId, range) => {
-  // Simulate API call
-  await new Promise(resolve => setTimeout(resolve, 1000));
-  
-  // Mock data matching mobile structure
-  const mockData = {
-    '1H': [
-      { timestamp: '2025-10-21T12:00:00Z', temperature: 28.1, humidity: 76, soil_moisture: 41, motion_detected: false },
-      { timestamp: '2025-10-21T11:45:00Z', temperature: 27.9, humidity: 77, soil_moisture: 42, motion_detected: true },
-      { timestamp: '2025-10-21T11:30:00Z', temperature: 27.7, humidity: 78, soil_moisture: 43, motion_detected: false },
-    ],
-    '24H': [
-      { timestamp: '2025-10-21T12:00:00Z', temperature: 28.1, humidity: 76, soil_moisture: 41, motion_detected: false },
-      { timestamp: '2025-10-21T06:00:00Z', temperature: 26.5, humidity: 82, soil_moisture: 45, motion_detected: true },
-      { timestamp: '2025-10-21T00:00:00Z', temperature: 25.2, humidity: 85, soil_moisture: 47, motion_detected: false },
-    ],
-    '7D': [
-      { timestamp: '2025-10-21T12:00:00Z', temperature: 28.1, humidity: 76, soil_moisture: 41, motion_detected: false },
-      { timestamp: '2025-10-18T12:00:00Z', temperature: 27.8, humidity: 78, soil_moisture: 43, motion_detected: true },
-      { timestamp: '2025-10-15T12:00:00Z', temperature: 27.2, humidity: 80, soil_moisture: 45, motion_detected: false },
-    ],
-  };
-  
-  return mockData[range] || [];
-};
 
 const RANGE_PRESETS = {
   '1H': { label: 'Last Hour', windowMs: 1 * 60 * 60 * 1000 },
@@ -43,6 +16,15 @@ const METRICS = [
   { key: 'temperature', label: 'Temperature', unit: '°C', color: '#F97316', digits: 1 },
   { key: 'humidity', label: 'Humidity', unit: '%', color: '#2563EB', digits: 0 },
   { key: 'soil_moisture', label: 'Soil Moisture', unit: '%', color: '#22C55E', digits: 0 },
+  // 👈 --- ADDED MOTION CHART ---
+  { 
+    key: 'motion_detected', 
+    label: 'Motion', 
+    unit: '', // No unit for 0 or 1
+    color: '#8B5CF6', // Purple color
+    digits: 0,
+    // ❗ --- 'isStepChart' flag removed. This will now be a line chart. ---
+  },
 ];
 
 const formatNumber = (value, digits = 0) => {
@@ -54,7 +36,7 @@ const formatAxisLabel = (timestamp, rangeKey) => {
   const date = new Date(timestamp);
   if (Number.isNaN(date.getTime())) return '--';
   if (rangeKey === '7D') {
-    return date.toLocaleDateString([], { day: '2-digit', month: 'short' });
+    return date.toLocaleString([], { day: '2-digit', month: 'short' });
   }
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 };
@@ -65,9 +47,12 @@ const MetricChart = ({ data, metric, rangeKey, chartWidth }) => {
   const topPadding = 18;
   const bottomPadding = 28;
 
+  const isMotion = metric.key === 'motion_detected';
+
   const filteredEntries = data.filter(
     (entry) =>
-      typeof entry[metric.key] === 'number' && !Number.isNaN(entry[metric.key])
+      (typeof entry[metric.key] === 'number' && !Number.isNaN(entry[metric.key])) ||
+      typeof entry[metric.key] === 'boolean' // 👈 --- ADD THIS CONDITION
   );
   const metricValues = filteredEntries.map((entry) => entry[metric.key]);
 
@@ -83,7 +68,9 @@ const MetricChart = ({ data, metric, rangeKey, chartWidth }) => {
   const min = Math.min(...metricValues);
   const max = Math.max(...metricValues);
   const span = max - min || 1;
-  const avg = metricValues.reduce((sum, value) => sum + value, 0) / metricValues.length;
+  const sum = metricValues.reduce((s, v) => s + v, 0);
+  const avg = sum / metricValues.length;
+  
   const delta =
     metricValues.length > 1
       ? metricValues[metricValues.length - 1] - metricValues[0]
@@ -109,6 +96,7 @@ const MetricChart = ({ data, metric, rangeKey, chartWidth }) => {
     };
   });
 
+  // ❗ --- This is now a standard line chart for all metrics ---
   const polylinePoints = points.map((point) => `${point.x},${point.y}`).join(' ');
 
   const gridLines = Array.from({ length: 4 }, (_, index) => {
@@ -138,7 +126,7 @@ const MetricChart = ({ data, metric, rangeKey, chartWidth }) => {
           <div style={{ ...styles.metricDelta, color: deltaColor }}>
             {delta > 0 ? '+' : ''}
             {formatNumber(delta, metric.digits)}
-            {metric.unit}
+            {!isMotion && metric.unit}
           </div>
         </div>
       </div>
@@ -148,21 +136,29 @@ const MetricChart = ({ data, metric, rangeKey, chartWidth }) => {
           <div style={styles.metricSummaryLabel}>Latest</div>
           <div style={styles.metricSummaryValue}>
             {formatNumber(metricValues[metricValues.length - 1], metric.digits)}
-            {metric.unit}
+            {!isMotion && metric.unit}
           </div>
         </div>
+
+        {/* 👈 --- This "Total Events" logic is kept --- */}
         <div style={styles.metricSummaryItem}>
-          <div style={styles.metricSummaryLabel}>Average</div>
+          <div style={styles.metricSummaryLabel}>
+            {isMotion ? 'Total Events' : 'Average'}
+          </div>
           <div style={styles.metricSummaryValue}>
-            {formatNumber(avg, metric.digits)}
-            {metric.unit}
+            {isMotion 
+              ? sum 
+              : formatNumber(avg, metric.digits)
+            }
+            {isMotion ? (sum === 1 ? ' event' : ' events') : metric.unit}
           </div>
         </div>
+
         <div style={styles.metricSummaryItem}>
           <div style={styles.metricSummaryLabel}>Range</div>
           <div style={styles.metricSummaryValue}>
             {formatNumber(min, metric.digits)}–{formatNumber(max, metric.digits)}
-            {metric.unit}
+            {!isMotion && metric.unit}
           </div>
         </div>
       </div>
@@ -178,12 +174,13 @@ const MetricChart = ({ data, metric, rangeKey, chartWidth }) => {
               y2={line.y}
               stroke="#E2E8F0"
               strokeDasharray="4 6"
+      
               strokeWidth={1}
             />
           ))}
 
           <polyline
-            points={polylinePoints}
+            points={polylinePoints} // 👈 --- Renders the line chart
             fill="none"
             stroke={color}
             strokeWidth={2.5}
@@ -224,22 +221,15 @@ const IotAnalytics = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Get device data from navigation state
   const device = location.state?.device || {};
-  const deviceName = device?.device_name || 'Unknown Device';
-  const speciesName = device?.species_name || 'Unknown Species';
-  const deviceId = device?.device_id || 'Unknown ID';
-
-  // Calculate derived data
-  const latestEntry = history.length > 0 ? history[history.length - 1] : null;
-  const motionEvents = history.filter((entry) => entry.motion_detected).length;
+  const deviceIdRaw = device?.device_id_raw;
   const activeAlerts = device.alerts ? device.alerts.length : 0;
+  const latestEntry = history.length > 0 ? history[history.length - 1] : null;
 
-  const chartWidth = 540; // Fixed width for web, you can make this responsive
+  const chartWidth = 540;
 
-  // Fetch data when component mounts or range changes
   useEffect(() => {
-    if (!device.device_id_raw) {
+    if (!deviceIdRaw) { 
       setError('No device ID provided');
       setLoading(false);
       return;
@@ -249,8 +239,7 @@ const IotAnalytics = () => {
       try {
         setLoading(true);
         setError(null);
-        // Fetch real data from the API
-        const data = await fetchDeviceHistory(device.device_id_raw, selectedRange);
+        const data = await fetchDeviceHistory(deviceIdRaw, selectedRange);
         setHistory(data);
       } catch (err) {
         console.error('Failed to load history:', err);
@@ -261,10 +250,10 @@ const IotAnalytics = () => {
     };
 
     loadHistory();
-  }, [device.device_id_raw, selectedRange]);
+  }, [deviceIdRaw, selectedRange]);
 
   const handleBack = () => {
-    navigate(-1); // Go back to previous page
+    navigate(-1); 
   };
 
   const renderContent = () => {
@@ -281,6 +270,14 @@ const IotAnalytics = () => {
       return (
         <div style={styles.centered}>
           <div style={styles.errorText}>{error}</div>
+        </div>
+      );
+    }
+    
+    if (history.length === 0) {
+      return (
+        <div style={styles.centered}>
+          <div style={styles.errorText}>No history data found for this time range.</div>
         </div>
       );
     }
@@ -301,10 +298,7 @@ const IotAnalytics = () => {
                 : '--'}
             </div>
           </div>
-          <div style={styles.kpiCard}>
-            <div style={styles.kpiLabel}>Motion Events</div>
-            <div style={styles.kpiValue}>{motionEvents}</div>
-          </div>
+          
           <div style={styles.kpiCard}>
             <div style={styles.kpiLabel}>Active Alerts</div>
             <div style={styles.kpiValue}>{activeAlerts}</div>
@@ -365,12 +359,12 @@ const IotAnalytics = () => {
         })}
       </div>
       
-      {/* Render the content (loading, error, or charts) */}
       {renderContent()}
     </div>
   );
 };
 
+// --- STYLES (Unchanged) ---
 const styles = {
   container: {
     flex: 1,

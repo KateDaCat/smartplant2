@@ -10,63 +10,76 @@ import {
 
 const DEFAULT_ROLE_OPTIONS = ["Admin", "Plant Researcher", "User"];
 
-const deriveRoleLookups = (rolesList) => {
+const buildRoleMetadata = (rolesList) => {
   const nameToId = {};
   const idToName = {};
   const options = [];
 
-  const register = (rawName, rawId) => {
-    if (!rawName || rawId == null) {
-      return;
-    }
-    const name = String(rawName).trim();
-    if (!name) return;
-    const id = Number(rawId);
-    idToName[id] = name;
-    nameToId[name] = id;
-    nameToId[name.toLowerCase()] = id;
-    if (!options.includes(name)) {
-      options.push(name);
+  const register = (name, id) => {
+    if (!name && name !== 0) return;
+    if (id == null) return;
+    const normalizedName = String(name).trim();
+    if (!normalizedName) return;
+    const numericId = Number(id);
+    if (Number.isNaN(numericId)) return;
+
+    idToName[numericId] = normalizedName;
+    nameToId[normalizedName] = numericId;
+    nameToId[normalizedName.toLowerCase()] = numericId;
+    if (!options.includes(normalizedName)) {
+      options.push(normalizedName);
     }
   };
 
   if (Array.isArray(rolesList) && rolesList.length > 0) {
-    rolesList.forEach((role) => register(role?.role_name, role?.role_id));
-  } else {
-    DEFAULT_ROLE_OPTIONS.forEach((roleName, index) => register(roleName, index + 1));
+    rolesList.forEach((role) =>
+      register(role?.role_name, role?.role_id)
+    );
+  }
+
+  if (options.length === 0) {
+    DEFAULT_ROLE_OPTIONS.forEach((roleName, index) =>
+      register(roleName, index + 1)
+    );
   }
 
   return { nameToId, idToName, options };
 };
 
-const decorateUsersWithRoles = (rolesList, apiUsers) => {
-  const { idToName } = deriveRoleLookups(rolesList);
+const decorateUsers = (apiUsers, idToName) => {
+  if (!Array.isArray(apiUsers)) return [];
 
-  return Array.isArray(apiUsers)
-    ? apiUsers.map((user) => {
-        const roleId =
-          typeof user.role_id === "number" || typeof user.role_id === "string"
-            ? Number(user.role_id)
-            : null;
-        const resolvedRole =
-          user.role_name ||
-          (roleId != null ? idToName[roleId] : null) ||
-          "Unknown";
-        const isActiveRaw =
-          typeof user.is_active === "boolean" ||
-          typeof user.is_active === "number"
-            ? user.is_active
-            : user.active;
+  return apiUsers.map((user) => {
+    const roleId =
+      typeof user.role_id === "number" || typeof user.role_id === "string"
+        ? Number(user.role_id)
+        : null;
+    const resolvedRole =
+      (typeof user.role_name === "string" && user.role_name.trim()) ||
+      (roleId != null ? idToName[roleId] : null) ||
+      "Unknown";
+    const activeField =
+      user.is_active ?? user.active ?? user.status ?? true;
 
-        return {
-          ...user,
-          role_id: roleId,
-          role: resolvedRole,
-          active: Boolean(isActiveRaw ?? true),
-        };
-      })
-    : [];
+    return {
+      ...user,
+      role_id: roleId,
+      role: resolvedRole,
+      active: Boolean(activeField),
+      email: user.email ?? "",
+      phone: user.phone ?? "",
+    };
+  });
 };
+
+const buildUpdatePayload = (user) => ({
+  username: user.username,
+  email: user.email,
+  role_id: user.role_id,
+  avatar_url: user.avatar_url ?? null,
+  phone: user.phone ?? null,
+  is_active: user.active ? 1 : 0,
+});
 
 export default function Users() {
   const [users, setUsers] = useState([]);
@@ -76,73 +89,30 @@ export default function Users() {
   const [hoveredDropdownItem, setHoveredDropdownItem] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [roles, setRoles] = useState([]);
-  const [busyUserIds, setBusyUserIds] = useState({});
+  const [rolesMeta, setRolesMeta] = useState(() =>
+    buildRoleMetadata([])
+  );
+  const [updatingMap, setUpdatingMap] = useState({});
 
-  const { nameToId: roleNameToId, options: roleOptions } =
-    useMemo(() => deriveRoleLookups(roles), [roles]);
+  const roleOptions = rolesMeta.options;
+  const roleNameToId = rolesMeta.nameToId;
+  const idToRoleName = rolesMeta.idToName;
 
-  const buildUpdatePayload = useCallback((user) => {
-    return {
-      username: user.username,
-      email: user.email,
-      role_id: user.role_id,
-      avatar_url: user.avatar_url ?? null,
-      phone: user.phone ?? null,
-      is_active: user.active ? 1 : 0,
-    };
-  }, []);
-
-  const applyUserUpdate = useCallback((userId, updater) => {
-    let previousUser = null;
-    let nextUser = null;
-
-    setUsers((prev) =>
-      prev.map((user) => {
-        if (user.user_id !== userId) return user;
-        previousUser = user;
-        nextUser = updater(user);
-        return nextUser;
-      })
-    );
-
-    setSelectedUser((prev) => {
-      if (prev && prev.user_id === userId && nextUser) {
-        return nextUser;
+  const markUpdating = useCallback((userId, value) => {
+    setUpdatingMap((prev) => {
+      const next = { ...prev };
+      if (value) {
+        next[userId] = true;
+      } else {
+        delete next[userId];
       }
-      return prev;
+      return next;
     });
-
-    return { previousUser, nextUser };
   }, []);
 
-  const withUserUpdate = useCallback(
-    async (userId, updater, { errorMessage }) => {
-      const { previousUser, nextUser } = applyUserUpdate(userId, updater);
-      if (!nextUser || !previousUser) {
-        return false;
-      }
-
-      setBusyUserIds((prev) => ({ ...prev, [userId]: true }));
-      setError(null);
-
-      try {
-        await persistUser(userId, buildUpdatePayload(nextUser));
-        return true;
-      } catch (err) {
-        console.error(err);
-        setError(errorMessage || "Unable to update user right now.");
-        applyUserUpdate(userId, () => previousUser);
-        return false;
-      } finally {
-        setBusyUserIds((prev) => {
-          const next = { ...prev };
-          delete next[userId];
-          return next;
-        });
-      }
-    },
-    [applyUserUpdate, buildUpdatePayload]
+  const isUserBusy = useCallback(
+    (userId) => Boolean(updatingMap[userId]),
+    [updatingMap]
   );
 
   const loadUsers = useCallback(async () => {
@@ -158,21 +128,16 @@ export default function Users() {
         fetchUsers(),
       ]);
 
-      const rolesData = Array.isArray(rolesResponse) ? rolesResponse : [];
-      const decorated = decorateUsersWithRoles(
-        rolesData,
-        Array.isArray(usersResponse) ? usersResponse : []
-      );
+      const metadata = buildRoleMetadata(rolesResponse);
+      const decoratedUsers = decorateUsers(usersResponse, metadata.idToName);
 
-      setRoles(rolesData);
-      setUsers(decorated);
-
+      setRolesMeta(metadata);
+      setUsers(decoratedUsers);
       setSelectedUser((prev) => {
         if (!prev) return prev;
-        const refreshed = decorated.find(
-          (user) => user.user_id === prev.user_id
+        return (
+          decoratedUsers.find((user) => user.user_id === prev.user_id) || prev
         );
-        return refreshed || prev;
       });
     } catch (err) {
       console.error(err);
@@ -180,81 +145,149 @@ export default function Users() {
     } finally {
       setLoading(false);
     }
-    }, []);
+  }, []);
 
   useEffect(() => {
     loadUsers();
   }, [loadUsers]);
 
+  const applyOptimisticUpdate = useCallback((userId, updatedUser) => {
+    setUsers((prev) =>
+      prev.map((user) =>
+        user.user_id === userId ? { ...user, ...updatedUser } : user
+      )
+    );
+    setSelectedUser((prev) => {
+      if (prev && prev.user_id === userId) {
+        return { ...prev, ...updatedUser };
+      }
+      return prev;
+    });
+  }, []);
+
+  const revertUserUpdate = useCallback((snapshot) => {
+    setUsers((prev) =>
+      prev.map((user) =>
+        user.user_id === snapshot.user_id ? { ...snapshot } : user
+      )
+    );
+    setSelectedUser((prev) => {
+      if (prev && prev.user_id === snapshot.user_id) {
+        return { ...snapshot };
+      }
+      return prev;
+    });
+  }, []);
+
+  const runUserUpdate = useCallback(
+    async (userId, updater, errorMessage) => {
+      const currentUser = users.find((user) => user.user_id === userId);
+      if (!currentUser) return false;
+
+      const snapshot = { ...currentUser };
+      const nextUser =
+        typeof updater === "function"
+          ? updater({ ...snapshot })
+          : { ...snapshot, ...updater };
+
+      if (!nextUser || typeof nextUser !== "object") {
+        return false;
+      }
+
+      applyOptimisticUpdate(userId, nextUser);
+      markUpdating(userId, true);
+      setError(null);
+
+      try {
+        await persistUser(userId, buildUpdatePayload(nextUser));
+        return true;
+      } catch (err) {
+        console.error(err);
+        setError(errorMessage);
+        revertUserUpdate(snapshot);
+        return false;
+      } finally {
+        markUpdating(userId, false);
+      }
+    },
+    [applyOptimisticUpdate, markUpdating, revertUserUpdate, users]
+  );
+
   const updateStatus = useCallback(
-    (userId, nextValue = null) => {
+    async (userId, nextValue = null) => {
       const user = users.find((u) => u.user_id === userId);
-      if (!user) return Promise.resolve(false);
-      if (busyUserIds[userId]) return Promise.resolve(false);
+      if (!user) return false;
+      if (isUserBusy(userId)) return false;
 
       const desiredValue =
         nextValue == null ? !user.active : Boolean(nextValue);
 
       if (desiredValue === user.active) {
-        return Promise.resolve(true);
+        return true;
       }
 
-      return withUserUpdate(
+      return runUserUpdate(
         userId,
         (current) => ({
           ...current,
           active: desiredValue,
-          is_active: desiredValue ? 1 : 0,
         }),
-        { errorMessage: "Failed to update user status." }
+        "Failed to update user status."
       );
     },
-    [users, busyUserIds, withUserUpdate]
+    [users, isUserBusy, runUserUpdate]
   );
 
   const changeRole = useCallback(
-    (userId, roleName) => {
+    async (userId, roleName) => {
       const user = users.find((u) => u.user_id === userId);
-      if (!user) return Promise.resolve(false);
-      if (busyUserIds[userId]) return Promise.resolve(false);
+      if (!user) return false;
+      if (isUserBusy(userId)) return false;
 
-    const normalizedRoleName =
-      typeof roleName === "string" ? roleName.trim() : roleName;
-    const roleId =
-      normalizedRoleName != null
-        ? roleNameToId[normalizedRoleName] ??
-          (typeof normalizedRoleName === "string"
-            ? roleNameToId[normalizedRoleName.toLowerCase()]
-            : undefined)
-        : undefined;
+      const candidate =
+        typeof roleName === "string" ? roleName.trim() : roleName;
+      const roleId =
+        candidate != null
+          ? roleNameToId[candidate] ??
+            (typeof candidate === "string"
+              ? roleNameToId[candidate.toLowerCase()]
+              : undefined)
+          : undefined;
+
       if (!roleId) {
         setError("Unknown role selected.");
-        return Promise.resolve(false);
+        return false;
       }
 
-      if (user.role === roleName && user.role_id === roleId) {
+      if (user.role === candidate && user.role_id === roleId) {
         setRoleMenu(null);
         setHoveredDropdownItem(null);
-        return Promise.resolve(true);
+        return true;
       }
 
-      return withUserUpdate(
+      const updatedRoleName =
+        typeof candidate === "string" && candidate.length > 0
+          ? candidate
+          : idToRoleName[roleId] ?? candidate;
+
+      const success = await runUserUpdate(
         userId,
         (current) => ({
           ...current,
-          role: roleName,
+          role: updatedRoleName,
           role_id: roleId,
         }),
-        { errorMessage: "Failed to update user role." }
-      ).then((success) => {
-        if (success) {
-          setRoleMenu(null);
-          setHoveredDropdownItem(null);
-        }
-        return success;
-      });
+        "Failed to update user role."
+      );
+
+      if (success) {
+        setRoleMenu(null);
+        setHoveredDropdownItem(null);
+      }
+
+      return success;
     },
-    [users, busyUserIds, roleNameToId, withUserUpdate]
+    [users, isUserBusy, roleNameToId, idToRoleName, runUserUpdate]
   );
 
   // Search functionality from mobile
@@ -274,11 +307,6 @@ export default function Users() {
       })
       .sort((a, b) => a.user_id - b.user_id); // Changed to sort by user_id in ascending order
   }, [searchQuery, users]);
-
-  const isUserBusy = useCallback(
-    (userId) => Boolean(busyUserIds[userId]),
-    [busyUserIds]
-  );
 
   const getDropdownItemStyle = (role) => {
     const baseStyle = {

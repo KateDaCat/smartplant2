@@ -8,8 +8,10 @@ import SensorsIcon from "@mui/icons-material/Sensors";
 import MapIcon from "@mui/icons-material/Map";
 import FlagIcon from "@mui/icons-material/Flag";
 import LogoutIcon from "@mui/icons-material/Logout";
+import MenuOpenIcon from "@mui/icons-material/MenuOpen";
+import MenuIcon from "@mui/icons-material/Menu";
 
-export default function Sidebar({ onLogout }) {
+export default function Sidebar({ onLogout, collapsed = false, onToggle }) {
   const location = useLocation();
 
   const menuItems = [
@@ -23,8 +25,19 @@ export default function Sidebar({ onLogout }) {
   return (
     <div className="sidebar">
       <div className="sidebar-header">
-        <h2 className="sidebar-title">Smart Plant</h2>
-        <p className="sidebar-subtitle">Admin Portal</p>
+        {!collapsed && (
+          <>
+            <h2 className="sidebar-title">Smart Plant</h2>
+            <p className="sidebar-subtitle">Admin Portal</p>
+          </>
+        )}
+        <button
+          className="sidebar-toggle-btn"
+          onClick={onToggle}
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          {collapsed ? <MenuIcon /> : <MenuOpenIcon />}
+        </button>
       </div>
 
       <nav className="sidebar-nav">
@@ -37,7 +50,7 @@ export default function Sidebar({ onLogout }) {
             }`}
           >
             <span className="sidebar-icon">{item.icon}</span>
-            <span className="sidebar-label">{item.label}</span>
+              {!collapsed && <span className="sidebar-label">{item.label}</span>}
           </Link>
         ))}
       </nav>
@@ -49,7 +62,7 @@ export default function Sidebar({ onLogout }) {
           onClick={onLogout}
         >
           <span className="sidebar-icon"><LogoutIcon /></span>
-          <span className="sidebar-label">Logout</span>
+          {!collapsed && <span className="sidebar-label">Logout</span>}
         </button>
       </div>
     </div>

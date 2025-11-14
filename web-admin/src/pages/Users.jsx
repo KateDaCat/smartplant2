@@ -15,21 +15,25 @@ const deriveRoleLookups = (rolesList) => {
   const idToName = {};
   const options = [];
 
+  const register = (rawName, rawId) => {
+    if (!rawName || rawId == null) {
+      return;
+    }
+    const name = String(rawName).trim();
+    if (!name) return;
+    const id = Number(rawId);
+    idToName[id] = name;
+    nameToId[name] = id;
+    nameToId[name.toLowerCase()] = id;
+    if (!options.includes(name)) {
+      options.push(name);
+    }
+  };
+
   if (Array.isArray(rolesList) && rolesList.length > 0) {
-    rolesList.forEach((role) => {
-      if (!role || typeof role.role_id === "undefined") return;
-      if (!role.role_name) return;
-      nameToId[role.role_name] = role.role_id;
-      idToName[role.role_id] = role.role_name;
-      options.push(role.role_name);
-    });
+    rolesList.forEach((role) => register(role?.role_name, role?.role_id));
   } else {
-    DEFAULT_ROLE_OPTIONS.forEach((roleName, index) => {
-      const roleId = index + 1;
-      nameToId[roleName] = roleId;
-      idToName[roleId] = roleName;
-      options.push(roleName);
-    });
+    DEFAULT_ROLE_OPTIONS.forEach((roleName, index) => register(roleName, index + 1));
   }
 
   return { nameToId, idToName, options };
@@ -214,7 +218,15 @@ export default function Users() {
       if (!user) return Promise.resolve(false);
       if (busyUserIds[userId]) return Promise.resolve(false);
 
-      const roleId = roleNameToId[roleName];
+    const normalizedRoleName =
+      typeof roleName === "string" ? roleName.trim() : roleName;
+    const roleId =
+      normalizedRoleName != null
+        ? roleNameToId[normalizedRoleName] ??
+          (typeof normalizedRoleName === "string"
+            ? roleNameToId[normalizedRoleName.toLowerCase()]
+            : undefined)
+        : undefined;
       if (!roleId) {
         setError("Unknown role selected.");
         return Promise.resolve(false);

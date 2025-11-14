@@ -214,7 +214,8 @@ export default function Users() {
   );
 
   const updateStatus = useCallback(
-    async (userId, nextValue = null) => {
+    async (userId, nextValue = null, options = {}) => {
+      const { skipConfirm = false } = options;
       const user = users.find((u) => u.user_id === userId);
       if (!user) return false;
       if (isUserBusy(userId)) return false;
@@ -224,6 +225,16 @@ export default function Users() {
 
       if (desiredValue === user.active) {
         return true;
+      }
+
+      if (!skipConfirm) {
+        const actionWord = desiredValue ? "activate" : "deactivate";
+        const confirmed = window.confirm(
+          `Are you sure you want to ${actionWord} ${user.username}'s account?`
+        );
+        if (!confirmed) {
+          return false;
+        }
       }
 
       return runUserUpdate(
@@ -239,7 +250,8 @@ export default function Users() {
   );
 
   const changeRole = useCallback(
-    async (userId, roleName) => {
+    async (userId, roleName, options = {}) => {
+      const { skipConfirm = false } = options;
       const user = users.find((u) => u.user_id === userId);
       if (!user) return false;
       if (isUserBusy(userId)) return false;
@@ -269,6 +281,15 @@ export default function Users() {
         typeof candidate === "string" && candidate.length > 0
           ? candidate
           : idToRoleName[roleId] ?? candidate;
+
+      if (!skipConfirm) {
+        const confirmed = window.confirm(
+          `Assign ${updatedRoleName} role to ${user.username}?`
+        );
+        if (!confirmed) {
+          return false;
+        }
+      }
 
       const success = await runUserUpdate(
         userId,

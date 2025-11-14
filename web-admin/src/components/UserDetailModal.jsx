@@ -39,7 +39,9 @@ export default function UserDetailModal({
     }
 
     if (window.confirm(`Assign ${role} role to ${currentUser.username}?`)) {
-      const success = await onChangeRole(currentUser.user_id, role);
+        const success = await onChangeRole(currentUser.user_id, role, {
+          skipConfirm: true,
+        });
       if (success) {
         setRoleMenuOpen(false);
       }
@@ -53,7 +55,9 @@ export default function UserDetailModal({
     if (!onChangeActive || isBusy) return;
 
     if (window.confirm(`Are you sure you want to ${action} ${currentUser.username}'s account?`)) {
-      await onChangeActive(currentUser.user_id, nextValue);
+        await onChangeActive(currentUser.user_id, nextValue, {
+          skipConfirm: true,
+        });
     }
   };
 

@@ -175,6 +175,13 @@ export default function FlaggedPlants() {
       ? `${selectedObservation.notes}\n${appendedNote}`
       : appendedNote;
 
+    const confirmed = window.confirm(
+      `Confirm identification of observation ${observationId} as "${identifiedName.trim()}"?`
+    );
+    if (!confirmed) {
+      return;
+    }
+
     setActionLoading(true);
     setActionError(null);
 

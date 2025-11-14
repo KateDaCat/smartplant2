@@ -467,70 +467,6 @@ select, input[type="search"] {
 }
 `;
 
-// ---------- Updated Mock Data Structure ----------
-const MOCK = [
-  {
-    observation_id: "OBS-3011",
-    user_id: 42,
-    species: {
-      species_id: 5,
-      common_name: "Rafflesia arnoldii",
-      scientific_name: "Rafflesia arnoldii",
-      is_endangered: true,
-    },
-    location_name: "Bako National Park",
-    location_latitude: 1.4667,
-    location_longitude: 110.3333,
-    confidence_score: 0.35,
-    is_masked: false,
-  },
-  {
-    observation_id: "OBS-2987",
-    user_id: 51,
-    species: {
-      species_id: 9,
-      common_name: "Nepenthes rajah",
-      scientific_name: "Nepenthes rajah",
-      is_endangered: true,
-    },
-    location_name: "Santubong Forest Reserve",
-    location_latitude: 1.595,
-    location_longitude: 110.345,
-    confidence_score: 0.62,
-    is_masked: true,
-  },
-  {
-    observation_id: "OBS-2860",
-    user_id: 17,
-    species: {
-      species_id: 14,
-      common_name: "Dendrobium anosmum",
-      scientific_name: "Dendrobium anosmum",
-      is_endangered: false,
-    },
-    location_name: "Semenggoh Nature Reserve",
-    location_latitude: 1.522,
-    location_longitude: 110.365,
-    confidence_score: 0.81,
-    is_masked: false,
-  },
-  {
-    observation_id: "OBS-2944",
-    user_id: 63,
-    species: {
-      species_id: 12,
-      common_name: "Nepenthes lowii",
-      scientific_name: "Nepenthes lowii",
-      is_endangered: true,
-    },
-    location_name: "Mount Kinabalu",
-    location_latitude: 6.075,
-    location_longitude: 116.558,
-    confidence_score: 0.58,
-    is_masked: false,
-  }
-];
-
 // ---------- Heatmap layer component ----------
 function HeatLayer({ points }) {
   const map = useMap();
@@ -667,18 +603,56 @@ export default function Heatmap() {
     (async () => {
       setLoading(true);
       setError("");
-    try {
-      const data = await fetchHeatmapObservations();
-      if (mounted) setRows(data.length ? data : MOCK);
-    } catch (e) {
-      if (mounted) {
-        console.error(e);
-        setRows(MOCK);
-        setError("Showing mock data (API unavailable).");
+      try {
+        const data = await fetchHeatmapObservations();
+        if (mounted) {
+          const normalised = Array.isArray(data)
+            ? data
+                .map((item) => ({
+                  ...item,
+                  location_latitude:
+                    item.location_latitude != null
+                      ? Number(item.location_latitude)
+                      : null,
+                  location_longitude:
+                    item.location_longitude != null
+                      ? Number(item.location_longitude)
+                      : null,
+                  confidence_score:
+                    item.confidence_score != null
+                      ? Number(item.confidence_score)
+                      : null,
+                }))
+                .filter(
+                  (item) =>
+                    typeof item.location_latitude === "number" &&
+                    !Number.isNaN(item.location_latitude) &&
+                    typeof item.location_longitude === "number" &&
+                    !Number.isNaN(item.location_longitude)
+                )
+            : [];
+
+          setRows(normalised);
+          if (
+            normalised.length === 0 ||
+            !normalised.some(
+              (obs) =>
+                selectedObservation &&
+                obs.observation_id === selectedObservation.observation_id
+            )
+          ) {
+            setSelectedObservation(null);
+          }
+        }
+      } catch (e) {
+        if (mounted) {
+          console.error(e);
+          setRows([]);
+          setError("Unable to load live data (using empty dataset).");
+        }
+      } finally {
+        if (mounted) setLoading(false);
       }
-    } finally {
-      if (mounted) setLoading(false);
-    }
     })();
     return () => { mounted = false; };
   }, []);
@@ -835,11 +809,17 @@ export default function Heatmap() {
           )
         : rows.filter((r) => !r.is_masked);
 
-    return observationsToUse.map(r => ({
+    return observationsToUse
+      .filter(
+        (r) =>
+          typeof r.location_latitude === "number" &&
+          typeof r.location_longitude === "number"
+      )
+      .map((r) => ({
         lat: r.location_latitude,
         lng: r.location_longitude,
-        intensity: r.species?.is_endangered ? 1.8 : 1.0
-    }));
+        intensity: r.species?.is_endangered ? 1.8 : 1.0,
+      }));
   }, [rows, selectedObservation]);
 
   // Filtered observations for selected species

@@ -10,6 +10,60 @@ import {
 
 const DEFAULT_ROLE_OPTIONS = ["Admin", "Plant Researcher", "User"];
 
+const deriveRoleLookups = (rolesList) => {
+  const nameToId = {};
+  const idToName = {};
+  const options = [];
+
+  if (Array.isArray(rolesList) && rolesList.length > 0) {
+    rolesList.forEach((role) => {
+      if (!role || typeof role.role_id === "undefined") return;
+      if (!role.role_name) return;
+      nameToId[role.role_name] = role.role_id;
+      idToName[role.role_id] = role.role_name;
+      options.push(role.role_name);
+    });
+  } else {
+    DEFAULT_ROLE_OPTIONS.forEach((roleName, index) => {
+      const roleId = index + 1;
+      nameToId[roleName] = roleId;
+      idToName[roleId] = roleName;
+      options.push(roleName);
+    });
+  }
+
+  return { nameToId, idToName, options };
+};
+
+const decorateUsersWithRoles = (rolesList, apiUsers) => {
+  const { idToName } = deriveRoleLookups(rolesList);
+
+  return Array.isArray(apiUsers)
+    ? apiUsers.map((user) => {
+        const roleId =
+          typeof user.role_id === "number" || typeof user.role_id === "string"
+            ? Number(user.role_id)
+            : null;
+        const resolvedRole =
+          user.role_name ||
+          (roleId != null ? idToName[roleId] : null) ||
+          "Unknown";
+        const isActiveRaw =
+          typeof user.is_active === "boolean" ||
+          typeof user.is_active === "number"
+            ? user.is_active
+            : user.active;
+
+        return {
+          ...user,
+          role_id: roleId,
+          role: resolvedRole,
+          active: Boolean(isActiveRaw ?? true),
+        };
+      })
+    : [];
+};
+
 export default function Users() {
   const [users, setUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
@@ -21,63 +75,8 @@ export default function Users() {
   const [roles, setRoles] = useState([]);
   const [busyUserIds, setBusyUserIds] = useState({});
 
-  const roleNameToId = useMemo(() => {
-    if (!roles.length) {
-      return DEFAULT_ROLE_OPTIONS.reduce((acc, name, index) => {
-        acc[name] = index + 1;
-        return acc;
-      }, {});
-    }
-    return roles.reduce((acc, role) => {
-      acc[role.role_name] = role.role_id;
-      return acc;
-    }, {});
-  }, [roles]);
-
-  const roleIdToName = useMemo(() => {
-    if (!roles.length) {
-      return Object.entries(roleNameToId).reduce((acc, [name, id]) => {
-        acc[id] = name;
-        return acc;
-      }, {});
-    }
-    return roles.reduce((acc, role) => {
-      acc[role.role_id] = role.role_name;
-      return acc;
-    }, {});
-  }, [roles, roleNameToId]);
-
-  const roleOptions = useMemo(() => {
-    if (roles.length) {
-      return roles.map((role) => role.role_name);
-    }
-    return DEFAULT_ROLE_OPTIONS;
-  }, [roles]);
-
-  const decorateUsers = useCallback(
-    (apiUsers) =>
-      apiUsers.map((user) => {
-        const roleId = user.role_id ?? null;
-        const roleName =
-          user.role_name ??
-          roleIdToName[roleId] ??
-          DEFAULT_ROLE_OPTIONS[roleId - 1] ??
-          "Unknown";
-        const isActiveRaw =
-          typeof user.is_active === "boolean" ||
-          typeof user.is_active === "number"
-            ? user.is_active
-            : user.active;
-
-        return {
-          ...user,
-          role_id: roleId,
-          role: roleName,
-          active: Boolean(isActiveRaw ?? true),
-        };
-      }),
-    [roleIdToName]
-  );
+  const { nameToId: roleNameToId, options: roleOptions } =
+    useMemo(() => deriveRoleLookups(roles), [roles]);
 
   const buildUpdatePayload = useCallback((user) => {
     return {
@@ -155,11 +154,13 @@ export default function Users() {
         fetchUsers(),
       ]);
 
-      setRoles(Array.isArray(rolesResponse) ? rolesResponse : []);
+      const rolesData = Array.isArray(rolesResponse) ? rolesResponse : [];
+      const decorated = decorateUsersWithRoles(
+        rolesData,
+        Array.isArray(usersResponse) ? usersResponse : []
+      );
 
-      const decorated = Array.isArray(usersResponse)
-        ? decorateUsers(usersResponse)
-        : [];
+      setRoles(rolesData);
       setUsers(decorated);
 
       setSelectedUser((prev) => {
@@ -175,7 +176,7 @@ export default function Users() {
     } finally {
       setLoading(false);
     }
-  }, [decorateUsers]);
+    }, []);
 
   useEffect(() => {
     loadUsers();

@@ -605,50 +605,12 @@ export default function Heatmap() {
       setError("");
       try {
         const data = await fetchHeatmapObservations();
-        if (mounted) {
-          const normalised = Array.isArray(data)
-            ? data
-                .map((item) => ({
-                  ...item,
-                  location_latitude:
-                    item.location_latitude != null
-                      ? Number(item.location_latitude)
-                      : null,
-                  location_longitude:
-                    item.location_longitude != null
-                      ? Number(item.location_longitude)
-                      : null,
-                  confidence_score:
-                    item.confidence_score != null
-                      ? Number(item.confidence_score)
-                      : null,
-                }))
-                .filter(
-                  (item) =>
-                    typeof item.location_latitude === "number" &&
-                    !Number.isNaN(item.location_latitude) &&
-                    typeof item.location_longitude === "number" &&
-                    !Number.isNaN(item.location_longitude)
-                )
-            : [];
-
-          setRows(normalised);
-          if (
-            normalised.length === 0 ||
-            !normalised.some(
-              (obs) =>
-                selectedObservation &&
-                obs.observation_id === selectedObservation.observation_id
-            )
-          ) {
-            setSelectedObservation(null);
-          }
-        }
+        if (mounted) setRows(data.length ? data : MOCK);
       } catch (e) {
         if (mounted) {
           console.error(e);
-          setRows([]);
-          setError("Unable to load live data (using empty dataset).");
+          setRows(MOCK);
+          setError("Showing mock data (API unavailable).");
         }
       } finally {
         if (mounted) setLoading(false);
@@ -809,17 +771,11 @@ export default function Heatmap() {
           )
         : rows.filter((r) => !r.is_masked);
 
-    return observationsToUse
-      .filter(
-        (r) =>
-          typeof r.location_latitude === "number" &&
-          typeof r.location_longitude === "number"
-      )
-      .map((r) => ({
+    return observationsToUse.map(r => ({
         lat: r.location_latitude,
         lng: r.location_longitude,
-        intensity: r.species?.is_endangered ? 1.8 : 1.0,
-      }));
+        intensity: r.species?.is_endangered ? 1.8 : 1.0
+    }));
   }, [rows, selectedObservation]);
 
   // Filtered observations for selected species

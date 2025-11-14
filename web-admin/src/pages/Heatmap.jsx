@@ -42,7 +42,7 @@ const css = `
   background: var(--card);
   display:flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: hidden auto;
   border-left: 1px solid var(--border);
 }
 

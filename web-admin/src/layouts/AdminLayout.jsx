@@ -1,18 +1,29 @@
 // src/layouts/AdminLayout.jsx
-import React from "react";
+import React, { useState, useCallback } from "react";
 import Sidebar from "../components/Sidebar";
 import Topbar from "../components/Topbar";
+import AdminAgentChat from "../components/AdminAgentChat";
 import "./AdminLayout.css";
 
-export default function AdminLayout({ children, onLogout }) {
-  return (
-    <div className="admin-layout">
-      {/* LEFT SIDEBAR */}
-      <Sidebar onLogout={onLogout} />
+export default function AdminLayout({ children, user, onLogout }) {
+  const [sidebarHidden, setSidebarHidden] = useState(false);
 
-      {/* RIGHT CONTENT AREA */}
+  const toggleSidebar = useCallback(() => {
+    setSidebarHidden((prev) => !prev);
+  }, []);
+
+  return (
+    <div className={`admin-layout ${sidebarHidden ? "sidebar-hidden" : ""}`}>
+      <Sidebar user={user} onLogout={onLogout} />
+
       <div className="admin-main">
-        <Topbar onLogout={onLogout} />
+        <Topbar
+          user={user}
+          onLogout={onLogout}
+          onToggleSidebar={toggleSidebar}
+          sidebarHidden={sidebarHidden}
+        />
+        <AdminAgentChat />
         <div className="admin-content">{children}</div>
       </div>
     </div>

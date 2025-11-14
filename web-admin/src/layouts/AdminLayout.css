@@ -8,13 +8,14 @@
 
 /* Sidebar always fixed width */
 .admin-layout .sidebar {
-  width: 240px;
-  min-width: 240px;
+  width: 260px;
+  min-width: 260px;
   height: 100%;
   background: #1f2937;
   color: white;
   position: relative;
   flex-shrink: 0;
+  transition: width 0.3s ease, transform 0.3s ease;
 }
 
 /* Main area (topbar + content) */
@@ -44,4 +45,15 @@
   flex: 1;
   padding: 24px;
   overflow-y: auto;
+}
+
+.admin-layout.sidebar-hidden .sidebar {
+  width: 0;
+  min-width: 0;
+  transform: translateX(-100%);
+  pointer-events: none;
+}
+
+.admin-layout.sidebar-hidden .admin-main {
+  width: 100%;
 }

@@ -11,6 +11,7 @@ import Login from "./pages/Login";
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
   // Check if user is already logged in
@@ -18,9 +19,15 @@ export default function App() {
     const checkAuth = () => {
       const token = localStorage.getItem('adminToken');
       const user = localStorage.getItem('adminUser');
-      
+
       if (token && user) {
-        setIsAuthenticated(true);
+        try {
+          const parsed = JSON.parse(user);
+          setCurrentUser(parsed);
+          setIsAuthenticated(true);
+        } catch (err) {
+          console.warn("Failed to parse cached adminUser:", err);
+        }
       }
       setLoading(false);
     };
@@ -30,12 +37,14 @@ export default function App() {
 
   const handleLogin = (userData) => {
     setIsAuthenticated(true);
+    setCurrentUser(userData);
     localStorage.setItem('adminUser', JSON.stringify(userData));
     localStorage.setItem('adminToken', 'mock-token-here'); // Cybersecurity team will replace
   };
 
   const handleLogout = () => {
     setIsAuthenticated(false);
+    setCurrentUser(null);
     localStorage.removeItem('adminUser');
     localStorage.removeItem('adminToken');
   };
@@ -73,7 +82,7 @@ export default function App() {
           path="/dashboard" 
           element={
             isAuthenticated ? 
-            <AdminLayout onLogout={handleLogout}><Dashboard /></AdminLayout> : 
+              <AdminLayout user={currentUser} onLogout={handleLogout}><Dashboard /></AdminLayout> : 
             <Navigate to="/login" replace />
           } 
         />
@@ -82,7 +91,7 @@ export default function App() {
           path="/users" 
           element={
             isAuthenticated ? 
-            <AdminLayout onLogout={handleLogout}><Users /></AdminLayout> : 
+              <AdminLayout user={currentUser} onLogout={handleLogout}><Users /></AdminLayout> : 
             <Navigate to="/login" replace />
           } 
         />
@@ -91,7 +100,7 @@ export default function App() {
           path="/flags" 
           element={
             isAuthenticated ? 
-            <AdminLayout onLogout={handleLogout}><Flags /></AdminLayout> : 
+              <AdminLayout user={currentUser} onLogout={handleLogout}><Flags /></AdminLayout> : 
             <Navigate to="/login" replace />
           } 
         />
@@ -100,7 +109,7 @@ export default function App() {
           path="/heatmap" 
           element={
             isAuthenticated ? 
-            <AdminLayout onLogout={handleLogout}><Heatmap /></AdminLayout> : 
+              <AdminLayout user={currentUser} onLogout={handleLogout}><Heatmap /></AdminLayout> : 
             <Navigate to="/login" replace />
           } 
         />
@@ -109,7 +118,7 @@ export default function App() {
           path="/iot" 
           element={
             isAuthenticated ? 
-            <AdminLayout onLogout={handleLogout}><IoT /></AdminLayout> : 
+              <AdminLayout user={currentUser} onLogout={handleLogout}><IoT /></AdminLayout> : 
             <Navigate to="/login" replace />
           } 
         />
@@ -118,7 +127,7 @@ export default function App() {
           path="/iot-analytics" 
           element={
             isAuthenticated ? 
-            <AdminLayout onLogout={handleLogout}><IotAnalytics /></AdminLayout> : 
+              <AdminLayout user={currentUser} onLogout={handleLogout}><IotAnalytics /></AdminLayout> : 
             <Navigate to="/login" replace />
           } 
         />
